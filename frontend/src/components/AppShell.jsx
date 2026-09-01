@@ -1,0 +1,120 @@
+import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { Library, Mic, LayoutDashboard, Leaf } from "lucide-react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+const nav = [
+  { to: "/", label: "Обзор", icon: LayoutDashboard, testId: "nav-overview" },
+  { to: "/record", label: "Новая лекция", icon: Mic, testId: "nav-record" },
+  { to: "/library", label: "Библиотека", icon: Library, testId: "nav-library" },
+];
+
+export default function AppShell() {
+  const { pathname } = useLocation();
+  const [cfg, setCfg] = useState(null);
+
+  useEffect(() => {
+    api.config().then(setCfg).catch(() => {});
+  }, []);
+
+  return (
+    <div className="paper-grain min-h-screen relative">
+      <div className="relative z-10 flex min-h-screen">
+        {/* Sidebar */}
+        <aside
+          className="hidden md:flex w-64 flex-col border-r border-[color:var(--border)] bg-[color:var(--paper)]"
+          data-testid="app-sidebar"
+        >
+          <div className="p-6 border-b border-[color:var(--border)]">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 border border-[color:var(--ink)] flex items-center justify-center bg-[color:var(--terracotta)]">
+                <Leaf className="w-4 h-4 text-white" strokeWidth={1.75} />
+              </div>
+              <div>
+                <div className="font-serif-display text-xl leading-none">
+                  Palimpsest
+                </div>
+                <div className="font-mono-label mt-1">Помощник по лекциям</div>
+              </div>
+            </div>
+          </div>
+
+          <nav className="flex-1 p-3">
+            {nav.map(({ to, label, icon: Icon, testId }) => {
+              const active =
+                to === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(to);
+              return (
+                <NavLink
+                  key={to}
+                  to={to}
+                  data-testid={testId}
+                  end={to === "/"}
+                  className={`flex items-center gap-3 px-4 py-3 mb-1 border transition-all ${
+                    active
+                      ? "bg-[color:var(--ink)] text-[color:var(--paper)] border-[color:var(--ink)]"
+                      : "border-transparent hover:border-[color:var(--border)] text-[color:var(--ink-soft)] hover:text-[color:var(--ink)]"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" strokeWidth={1.5} />
+                  <span className="text-sm">{label}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          <div className="p-4 border-t border-[color:var(--border)]">
+            <div className="font-mono-label">Движок</div>
+            <div className="text-sm mt-1 text-[color:var(--ink)]">
+              {cfg?.llm_mode === "deepseek" ? "DeepSeek" : "Gemini Flash"}
+            </div>
+            {cfg?.is_mocked && (
+              <div
+                className="mt-2 text-[11px] px-2 py-1 border border-[color:var(--terracotta)] text-[color:var(--terracotta-deep)] inline-block leading-tight"
+                data-testid="llm-mocked-badge"
+              >
+                ЗАГЛУШКА · добавьте DEEPSEEK_API_KEY
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* Mobile top-nav */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-20 bg-[color:var(--paper)] border-b border-[color:var(--border)] p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 border border-[color:var(--ink)] flex items-center justify-center bg-[color:var(--terracotta)]">
+              <Leaf className="w-3.5 h-3.5 text-white" strokeWidth={1.75} />
+            </div>
+            <div className="font-serif-display text-lg leading-none">Palimpsest</div>
+          </div>
+          <div className="flex gap-1">
+            {nav.map(({ to, icon: Icon, testId }) => {
+              const active =
+                to === "/" ? pathname === "/" : pathname.startsWith(to);
+              return (
+                <NavLink
+                  key={to}
+                  to={to}
+                  data-testid={`${testId}-mobile`}
+                  end={to === "/"}
+                  className={`p-2 border ${
+                    active
+                      ? "bg-[color:var(--ink)] text-[color:var(--paper)] border-[color:var(--ink)]"
+                      : "border-[color:var(--border)]"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" strokeWidth={1.5} />
+                </NavLink>
+              );
+            })}
+          </div>
+        </div>
+
+        <main className="flex-1 md:pt-0 pt-16">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}

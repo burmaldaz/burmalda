@@ -1,0 +1,130 @@
+/* Botanical Brutalism aesthetic */
+
+:root {
+  --paper: #FCFBF9;
+  --bg: #F4F1EB;
+  --bg-2: #EAE6DF;
+  --ink: #1C201F;
+  --ink-soft: #4A524D;
+  --muted: #8C9690;
+  --border: #D1CCC2;
+  --terracotta: #D86E53;
+  --terracotta-deep: #B75640;
+  --sage: #7A9A84;
+  --sage-deep: #5F7E68;
+}
+
+html, body, #root {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+body {
+  font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+
+.font-serif-display {
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  letter-spacing: -0.01em;
+}
+.font-mono-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Paper grain overlay */
+.paper-grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(rgba(28,32,31,0.05) 1px, transparent 1px),
+    radial-gradient(rgba(28,32,31,0.03) 1px, transparent 1px);
+  background-size: 3px 3px, 7px 7px;
+  background-position: 0 0, 1px 1px;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+  z-index: 0;
+}
+
+/* Sharp offset shadow */
+.shadow-offset {
+  box-shadow: 3px 3px 0 0 var(--ink);
+}
+.shadow-offset-sm {
+  box-shadow: 2px 2px 0 0 var(--ink);
+}
+.shadow-offset-terracotta {
+  box-shadow: 3px 3px 0 0 var(--terracotta-deep);
+}
+.hover-lift:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 var(--ink);
+}
+.hover-lift {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+/* Recording pulse */
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.55; }
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--terracotta);
+  animation: pulse-dot 1.15s ease-in-out infinite;
+}
+
+/* Selection */
+::selection {
+  background: #D86E5333;
+  color: var(--ink);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #D1CCC2;
+  border: 2px solid var(--bg);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Prose (summary) */
+.prose-notes h2 {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 1.75rem 0 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+}
+.prose-notes h3 {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 1.25rem 0 0.35rem;
+}
+.prose-notes p { margin: 0.6rem 0; color: var(--ink-soft); line-height: 1.75; }
+.prose-notes ul { margin: 0.5rem 0 0.75rem 1.15rem; }
+.prose-notes li { margin: 0.35rem 0; color: var(--ink-soft); line-height: 1.7; }
+.prose-notes strong { color: var(--ink); }
+.prose-notes code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85em;
+  background: var(--bg-2);
+  padding: 0 4px;
+  border: 1px solid var(--border);
+}

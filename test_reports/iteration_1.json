@@ -1,0 +1,26 @@
+{
+  "summary": "First-finish smoke pass. Backend: all 11 endpoint groups tested via public URL (23/23 checks pass) including /config, lecture CRUD, transcript file write, PATCH append, AI summary (3772-char output + key_points), test generation (8 questions, 4 MCQ + 2 TF + 2 short, valid answer formats), grading (100% on all-correct / 0% on all-wrong), lists, stats, delete. Frontend: Dashboard -> /record (paste mode) -> create lecture -> Generate notes -> Generate test -> answer 8 questions -> Submit -> Score view with 8 per-question review items. All data-testids resolve. Note: dashboard CTA testid is cta-record and cta-library (not cta-start-recording as stated in the review request), but they work correctly.",
+  "tested_scope": ["backend", "frontend", "integration"],
+  "passed": [
+    "GET /api/config returns {llm_mode: 'mock', is_mocked: true}",
+    "POST/GET/DELETE /api/lectures full CRUD",
+    "PATCH /api/lectures/{id}/transcript with append=true + duration_sec",
+    "Raw transcript file written to /app/backend/lecture_transcripts/{id}_{title}.txt",
+    "POST /api/lectures/{id}/summary returns summary >200 chars (3772) + non-empty key_points",
+    "POST /api/lectures/{id}/test returns exactly 8 questions with mixed types (4 mcq / 2 tf / 2 short); MCQ answers A-D; TF answers True/False",
+    "POST /api/tests/{id}/grade: score=100 for all-correct, score decreases (to 0) for all-wrong",
+    "GET /api/lectures/{id}/tests and /attempts return populated lists",
+    "GET /api/stats returns {lectures, tests, attempts, avg_score}",
+    "Dashboard loads with stats tiles + Recent lectures list; CTAs navigate to /record and /library",
+    "RecordPage: mode-mic/paste/upload switching works; paste-mode create-lecture flow navigates to /lecture/{id}",
+    "LecturePage: generate-summary-btn populates summary-view; generate-test-btn navigates to /lecture/{id}/test/{testId}",
+    "TestPage renders 8 questions across MCQ/TF/short; option button state visually updates on click; submit-test-btn shows score-value + 8 review-{qid} items with correct/incorrect indicators"
+  ],
+  "failed": [],
+  "action_items": [
+    "Minor doc mismatch only: review request mentions cta-start-recording, but code uses cta-record / cta-library. No fix required unless you want to align naming."
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% (E2E paste-mode flow end-to-end)"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}

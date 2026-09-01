@@ -1,0 +1,101 @@
+{
+  "theme": "light",
+  "archetype": "Organic & Earthy mixed with Grid Borders (Botanical Brutalism)",
+  "typography": {
+    "headings": {
+      "fontFamily": "Cormorant Garamond, serif",
+      "weights": ["400", "600"],
+      "classes": "font-serif tracking-tight text-[#1C201F]"
+    },
+    "body": {
+      "fontFamily": "Manrope, sans-serif",
+      "weights": ["400", "500"],
+      "classes": "font-sans leading-relaxed text-[#4A524D]"
+    },
+    "mono_labels": {
+      "fontFamily": "JetBrains Mono, monospace",
+      "weights": ["400"],
+      "classes": "font-mono tracking-[0.1em] uppercase text-xs text-[#8C9690]"
+    }
+  },
+  "colors": {
+    "background": {
+      "primary": "#F4F1EB",
+      "secondary": "#EAE6DF",
+      "paper": "#FCFBF9"
+    },
+    "text": {
+      "primary": "#1C201F",
+      "secondary": "#4A524D",
+      "muted": "#8C9690"
+    },
+    "accents": {
+      "terracotta": "#D86E53",
+      "sage": "#7A9A84",
+      "ink": "#1C201F"
+    },
+    "borders": {
+      "default": "#D1CCC2",
+      "focus": "#7A9A84"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders (The 'Technical/Notebook' Look). Use border-collapse style layouts for dashboard panels. Use 1px sharp borders (`border-[#D1CCC2]`). No soft drop shadows. For active elements, use a solid 2px offset shadow (`shadow-[2px_2px_0_0_#1C201F]`) to give a tactile, analog notebook feel.",
+    "textures": "Apply a subtle paper grain texture to the main app wrapper using the provided image (mix-blend-multiply, low opacity) to reduce digital eye strain and enhance the organic feel.",
+    "radius": "Use extremely subtle radius (`rounded-sm` or `rounded-none`) to emulate physical paper and folders. Avoid heavy pills unless for main CTAs."
+  },
+  "components": {
+    "buttons": "Sharp rectangular or slightly rounded (`rounded-sm`). Primary CTAs (e.g., 'Record Lecture') should be Terracotta with an Ink border. Use `hover:-translate-y-[1px] hover:shadow-[2px_2px_0_0_#1C201F] transition-all`.",
+    "cards": "Cardless design or sharp 1px border panels with generous padding (`p-6` or `p-8`). Background should be the paper color.",
+    "navigation": "Collapsible left sidebar for desktop. High contrast vertical borders separating the sidebar from the main content. Include sections for: 'Library', 'Record', and 'Tests'.",
+    "tables_and_lists": "Use minimal borders on list items. Strip default soft shadows from tables. Align text left.",
+    "transcription_view": "Large, readable typography for transcripts (Manrope `text-lg`). Generous line height.",
+    "test_quiz_interface": "Tightly packed bento grid for questions, or one question per view with bold, clear typography. Correct answers highlighted in Sage, incorrect in Terracotta."
+  },
+  "grids_and_layouts": {
+    "dashboard": "Mode B (High Density Grid). 1px grid borders separating widgets. Main Content area should utilize a split layout for studying: Transcript (left) and AI Summary (right) side-by-side.",
+    "spacing": "Generous spacing philosophy. Use `gap-6` or `gap-8`, and padding `p-8` to give breathing room for dense reading material."
+  },
+  "motion_and_interactions": {
+    "micro_interactions": "Subtle translation on buttons. Instant, snappy transitions for data tabs.",
+    "recording_state": "When recording, display a pulsing Terracotta indicator (`animate-pulse`) and visualize audio activity if possible.",
+    "page_transitions": "Use Framer Motion for subtle fade-ins and Y-axis slides (`initial={{ opacity: 0, y: 10 }}`) when switching between dashboard views."
+  },
+  "media_and_assets": {
+    "icons": "Use `lucide-react` with stroke-width 1.5 for a delicate, crisp appearance.",
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1727525895930-763407362a4e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYm90YW5pY2FsJTIwaWxsdXN0cmF0aW9ufGVufDB8fHx8MTc4ODI4ODIxNnww&ixlib=rb-4.1.0&q=85",
+        "description": "Delicate green leaves on a white background",
+        "category": "Empty States (Use when the lecture library is empty or a user needs to select a lecture)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1637325258040-d2f09636ecf6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxzdWJ0bGUlMjBwYXBlciUyMGdyYWluJTIwdGV4dHVyZXxlbnwwfHx8fDE3ODgyODgyMjJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Subtle paper grain texture",
+        "category": "Background Texture (Overlay on the main background, opacity ~10%, pointer-events-none, mix-blend-multiply)"
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure all text against the paper background meets APCA standards. Do NOT use fully transparent backgrounds behind text.",
+    "focus": "All interactive elements must have a high-contrast focus ring (`focus:ring-2 focus:ring-ink focus:outline-none`).",
+    "testing": "All interactive and key informational elements MUST include a `data-testid` attribute (e.g., `data-testid=\"start-recording-btn\"`)."
+  },
+  "instructions_to_main_agent": [
+    "Install required dependencies: `lucide-react`, `framer-motion`, `sonner`.",
+    "Use standard JS files (.js, .jsx), NOT TypeScript.",
+    "Do NOT add `text-align: center` to the app container. Maintain left alignment for readability.",
+    "Implement Web Speech API in a dedicated hook/utility for the recording feature.",
+    "Implement a mock for Deepseek API calls (summarization and test generation) using `setTimeout` to simulate async backend processing. HIGHLIGHT in comments or toast notifications that AI responses are MOCKED.",
+    "Load `Cormorant Garamond`, `Manrope`, and `JetBrains Mono` fonts from Google Fonts in the index.html or global CSS.",
+    "Use Tailwind configuration to add the custom colors provided in the guidelines.",
+    "Build the UI focusing on a dual-pane layout for the lecture details page: Transcript on one side, AI Notes on the other.",
+    "Follow the 'Grid Borders' surface strategy: exposed skeleton, 1px borders between main sections.",
+    "Use Shadcn UI components where applicable, but override their styles to match these guidelines."
+  ],
+  "universal_guidelines": {
+    "creativity": "Avoid generic SaaS 'slop'. Embrace the 'Botanical Brutalism' aesthetic—a mix of structured grid borders with warm, organic typography and colors.",
+    "spacing": "Use 2-3x more spacing than feels comfortable. Generous padding makes reading text-heavy apps much easier.",
+    "components": "Reuse existing shadcn components from `src/components/ui` but remove soft drop shadows. Replace them with sharp 1px borders and solid offset shadows for interactive states."
+  }
+}
