@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import Markdown from "@/components/Markdown";
-import { Sparkles, GraduationCap, ArrowLeft, Loader2, History } from "lucide-react";
+import { Sparkles, GraduationCap, ArrowLeft, Loader2, History, Printer } from "lucide-react";
 
 export default function LecturePage() {
   const { id } = useParams();
@@ -71,6 +71,15 @@ export default function LecturePage() {
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            data-testid="print-pdf-btn"
+            disabled={!lec.summary}
+            onClick={() => window.print()}
+            title="Распечатать / сохранить как PDF"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[color:var(--paper)] border border-[color:var(--ink)] shadow-offset-sm hover-lift disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            <Printer className="w-4 h-4" strokeWidth={1.5} /> PDF
+          </button>
           <button
             data-testid="generate-summary-btn"
             disabled={busy || !lec.transcript}
@@ -196,6 +205,70 @@ export default function LecturePage() {
           </div>
         </div>
       )}
+
+      {/* Print-only view: конспект + вопросы + ответы */}
+      <div className="print-only" data-testid="print-view">
+        <h1 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: "26pt", margin: "0 0 8pt" }}>
+          {lec.title}
+        </h1>
+        <div style={{ fontSize: "9pt", color: "#666", marginBottom: "16pt" }}>
+          {new Date(lec.created_at).toLocaleString("ru-RU")}
+        </div>
+        {lec.summary && (
+          <>
+            <h2 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: "18pt", marginTop: "12pt" }}>
+              Конспект
+            </h2>
+            <Markdown text={lec.summary} />
+            {lec.key_points?.length > 0 && (
+              <>
+                <h3 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: "13pt", marginTop: "10pt" }}>
+                  Ключевые тезисы
+                </h3>
+                <ul>
+                  {lec.key_points.map((k, i) => <li key={i}>{k}</li>)}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+        {tests.length > 0 && (
+          <>
+            <div style={{ pageBreakBefore: "always" }} />
+            <h2 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: "18pt", marginTop: "12pt" }}>
+              Тест ({tests[0].questions.length} вопросов)
+            </h2>
+            <ol style={{ paddingLeft: "1.2em" }}>
+              {tests[0].questions.map((q) => (
+                <li key={q.id} style={{ marginBottom: "10pt" }}>
+                  <div style={{ fontWeight: 600 }}>{q.prompt}</div>
+                  {q.type === "mcq" && (
+                    <ul style={{ listStyle: "none", padding: 0, margin: "4pt 0" }}>
+                      {q.options.map((o) => <li key={o}>{o}</li>)}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+            <div style={{ pageBreakBefore: "always" }} />
+            <h2 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: "18pt" }}>
+              Ответы
+            </h2>
+            <ol style={{ paddingLeft: "1.2em" }}>
+              {tests[0].questions.map((q) => (
+                <li key={q.id} style={{ marginBottom: "6pt" }}>
+                  <strong>
+                    {q.type === "tf"
+                      ? q.answer === "True" ? "Правда" : "Ложь"
+                      : q.answer}
+                  </strong>
+                  {q.explanation ? ` — ${q.explanation}` : ""}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+      </div>
     </div>
   );
 }

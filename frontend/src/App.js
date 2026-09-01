@@ -7,6 +7,7 @@ import RecordPage from "@/pages/RecordPage";
 import LibraryPage from "@/pages/LibraryPage";
 import LecturePage from "@/pages/LecturePage";
 import TestPage from "@/pages/TestPage";
+import ReviewPage from "@/pages/ReviewPage";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/lecture/:id" element={<LecturePage />} />
           <Route path="/lecture/:id/test/:testId" element={<TestPage />} />
+          <Route path="/review" element={<ReviewPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

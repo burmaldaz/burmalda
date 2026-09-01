@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { Library, Mic, LayoutDashboard, Leaf } from "lucide-react";
+import { Library, Mic, LayoutDashboard, Leaf, Repeat } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
@@ -7,15 +7,21 @@ const nav = [
   { to: "/", label: "Обзор", icon: LayoutDashboard, testId: "nav-overview" },
   { to: "/record", label: "Новая лекция", icon: Mic, testId: "nav-record" },
   { to: "/library", label: "Библиотека", icon: Library, testId: "nav-library" },
+  { to: "/review", label: "Повторение", icon: Repeat, testId: "nav-review" },
 ];
 
 export default function AppShell() {
   const { pathname } = useLocation();
   const [cfg, setCfg] = useState(null);
+  const [reviewStats, setReviewStats] = useState({ due: 0, total: 0 });
 
   useEffect(() => {
     api.config().then(setCfg).catch(() => {});
-  }, []);
+    const load = () => api.reviewStats().then(setReviewStats).catch(() => {});
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
+  }, [pathname]);
 
   return (
     <div className="paper-grain min-h-screen relative">
@@ -59,6 +65,18 @@ export default function AppShell() {
                 >
                   <Icon className="w-4 h-4" strokeWidth={1.5} />
                   <span className="text-sm">{label}</span>
+                  {to === "/review" && reviewStats.due > 0 && (
+                    <span
+                      data-testid="review-due-badge"
+                      className={`ml-auto text-[10px] px-1.5 py-0.5 border ${
+                        active
+                          ? "border-[color:var(--paper)] text-[color:var(--paper)]"
+                          : "border-[color:var(--terracotta)] text-[color:var(--terracotta-deep)] bg-[color:var(--paper)]"
+                      }`}
+                    >
+                      {reviewStats.due}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}

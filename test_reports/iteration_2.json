@@ -1,0 +1,71 @@
+{
+  "summary": "Iteration 2 full test pass (backend pytest 16 tests + frontend E2E via public URL). Verified: /api/config -> llm_mode=deepseek, is_mocked=false; summary generation succeeds (Russian, >200 chars, key_points) via DeepSeek->Gemini graceful fallback; test generation returns exactly 8 questions (4 MCQ / 2 TF / 2 short) in Russian with valid answer formats; POST /api/transcribe-audio works with a real ffmpeg-generated mp3 (returned {text:'Beep.'}), 405 on GET and 422 without file; full spaced-repetition loop (grade all-wrong -> 8 review_items due tomorrow -> seed-now -> /review/due -> correct answer doubles interval to next_due_days=2 -> wrong resets to 1 -> /review/stats {total,due} -> 404/422 error paths). Frontend: 4 sidebar items + numeric due badge (14 -> 11 after answering, hidden at 0), sidebar engine shows 'DeepSeek' with no ЗАГЛУШКА badge, /review card loop with feedback (Правильный + explanation + 'Следующий показ через N') and Следующая -> progression across 3 cards, empty state 'Всё в порядке. / Очередь пуста' verified, /record 4 modes incl. Аудио -> текст with real audio upload E2E (transcribing indicator -> transcript preview -> title auto-filled), lecture page print-pdf-btn present and enabled when summary exists. ONE CRITICAL BUG FOUND: short-answer grading can never be correct for Russian answers.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/tests/{test_id}/grade and POST /api/review/{item_id}/answer",
+        "issue": "CRITICAL: _norm() in server.py:412 uses re.sub(r'[^a-z0-9]+', ' ', s.lower()) which deletes ALL Cyrillic characters. Any short-answer question with a Russian expected answer normalizes to '' -> expected set empty -> is_correct always False, even for an exact match. Verified live: review item with answer 'хлорофилл', submitted 'хлорофилл' -> {is_correct: false, next_due_days: 1}. Consequence: max achievable test score is 75% (2 of 8 questions unpassable) and Russian short-answer review cards can never graduate out of the review queue (infinite 1-day loop). Fix: use a Unicode-aware regex, e.g. re.sub(r'[^\\w]+', ' ', s.lower(), flags=re.UNICODE) (or [^0-9a-zа-яё]).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "DELETE /api/lectures/{lecture_id}",
+        "issue": "No cascade delete of db.review_items (tests/attempts/transcript file are cleaned, review_items are not). Deleting a lecture leaves orphaned review cards that keep appearing on /review and inflate the sidebar badge. Observed 24 orphans in the shared DB (from earlier iterations + this run); I cleaned them manually. Add: await db.review_items.delete_many({'lecture_id': lecture_id})."
+      },
+      {
+        "endpoint": "POST /api/review/seed-now",
+        "issue": "Debug-only endpoint that mutates all review scheduling with no guard/flag. Consider gating behind an env flag before release."
+      },
+      {
+        "endpoint": "POST /api/transcribe-audio",
+        "issue": "language is hard-coded to 'en' in the Whisper call; a Russian-language lecture recording would be force-transcribed as English. Consider making language optional/auto."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Review card - short answer",
+        "issue": "Downstream of the backend _norm bug: entering the exact expected Russian phrase shows red 'incorrect' feedback and reschedules the card for 1 day, so the user can never clear Russian short-answer cards.",
+        "affected_selectors": ["[data-testid=\"review-short\"]", "[data-testid=\"review-feedback\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Lecture detail (/lecture/:id) - AI notes pane",
+        "issues": ["LLM-emitted LaTeX is rendered raw: '\\[ 6CO_2 + 6H_2O + свет \\rightarrow C_6H_{12}O_6 + 6O_2 \\]' displayed as literal text. Either instruct the model to avoid LaTeX or render with KaTeX/remark-math."]
+      },
+      {
+        "screen": "Review feedback block",
+        "issues": ["Label reads 'ПРАВИЛЬНЫЙ B' with no explicit correct/incorrect wording; only the icon and border colour distinguish right vs wrong. Suggest adding 'Верно'/'Неверно' text for clarity/accessibility."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/clear_due.py",
+    "/app/test_reports/pytest/iter2.xml"
+  ],
+  "action_items": [
+    "CRITICAL: make _norm() Unicode-aware so Cyrillic short answers can be graded correct (affects /tests/{id}/grade and /review/{id}/answer).",
+    "Cascade-delete db.review_items in DELETE /api/lectures/{id} to avoid orphaned review cards / wrong sidebar badge count.",
+    "Render or suppress LaTeX in the notes markdown (raw \\[ ... \\] visible on lecture page).",
+    "Optional: gate /api/review/seed-now behind a debug flag; make Whisper language auto-detect instead of hard-coded 'en'."
+  ],
+  "critical_code_review_comments": [
+    "server.py:412 _norm regex [^a-z0-9] silently destroys all non-Latin text - root cause of the short-answer grading defect; add a unit test for Cyrillic normalization.",
+    "delete_lecture() cleans tests/attempts/transcript but not review_items - inconsistent cascade.",
+    "Grading logic is duplicated between grade() and review_answer() (~15 lines) - extract a shared _check_answer(question, response) helper.",
+    "server.py is 652 lines and mixes models, LLM clients, and routes; consider splitting into models.py / llm.py / routers/."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/backend/tests/clear_due.py"],
+  "success_rate": {"backend": "75% (12/16 pytest checks; all 4 failures trace to the single Cyrillic _norm bug)", "frontend": "100% of tested flows rendered/worked (review loop, empty state, badge, audio upload, PDF button, DeepSeek indicator)"},
+  "seed_data_creation": "Created and deleted lecture 'TEST_SR_iter2' (with summary, generated test, all-wrong attempt) per run; removed 24 orphaned review_items from the shared DB. Existing lecture 'Test SR flow' retained with 7 due review items; POST /api/review/seed-now was used to restore due dates after testing.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "No auth in app (per /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "pytest.ini uses xdist --dist loadscope, so fixtures MUST be class-scoped (session-scoped state is not shared across workers). /app/backend/tests/backend_test.py covers config, summary, test-gen, SR loop, Whisper (ffmpeg is installed at /usr/bin/ffmpeg; generate /tmp/test_tone.mp3). The 4 currently-failing tests (TestSpacedRepetition::test_short_answer_cyrillic_is_graded_correct, test_grade_all_correct_scores_100, TestNormalization::*) are the Cyrillic _norm bug - they must pass after the fix. Note test_short_answer_cyrillic_is_graded_correct can pass spuriously if the LLM emits a Latin-script short answer; TestNormalization::test_norm_preserves_cyrillic is the deterministic check. Use /app/backend/tests/clear_due.py to empty the due queue (and 'restore' arg = seed-now) when testing the /review empty state.",
+  "rca_of_the_issue": "_norm(s) = re.sub(r'[^a-z0-9]+', ' ', s.lower()) is ASCII-only. For Russian short answers every character is stripped, producing an empty expected-token set; the short-answer branch then computes overlap over an empty set and returns is_ok=False unconditionally. Reproduce: POST /api/review/{id}/answer with response == question.answer for a Cyrillic short item -> is_correct false. Mitigation: use a Unicode word regex (re.UNICODE / [^0-9a-zа-яё]) in _norm and extract the shared answer-checking logic used by grade() and review_answer()."
+}

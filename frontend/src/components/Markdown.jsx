@@ -6,6 +6,21 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Strip LaTeX delimiters that some LLMs still emit despite instructions.
+function stripLatex(s) {
+  return s
+    .replace(/\\\[|\\\]/g, "")
+    .replace(/\\\(|\\\)/g, "")
+    .replace(/\$\$/g, "")
+    .replace(/\\text\{([^}]*)\}/g, "$1")
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
+    .replace(/\\times/g, "×")
+    .replace(/\\cdot/g, "·")
+    .replace(/\\rightarrow|\\to/g, "→")
+    .replace(/\\Delta/g, "Δ")
+    .replace(/\\/g, "");
+}
+
 function inline(s) {
   return esc(s)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
@@ -14,7 +29,7 @@ function inline(s) {
 
 export default function Markdown({ text = "", className = "" }) {
   if (!text) return null;
-  const lines = text.replace(/\r/g, "").split("\n");
+  const lines = stripLatex(text).replace(/\r/g, "").split("\n");
   const out = [];
   let listBuf = [];
 

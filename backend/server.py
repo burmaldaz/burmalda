@@ -7,21 +7,24 @@ LLM backing:
 - Placeholder for user's DeepSeek key (will drop in when provided).
 - For now: MOCKED via Emergent Universal Key -> Gemini 3 Flash (cheap, fast).
 """
-from fastapi import FastAPI, APIRouter, HTTPException, status
+from fastapi import FastAPI, APIRouter, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Literal, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 import os
 import re
 import uuid
 import json
+import io
 import logging
+import httpx
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.openai import OpenAISpeechToText
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -145,28 +148,60 @@ TEST_SYSTEM = (
 
 
 def _new_chat(session_id: str, system: str) -> LlmChat:
-    """Return an LlmChat instance targeting the currently-active model."""
-    if LLM_MODE == "deepseek":
-        # DeepSeek not natively in emergentintegrations; if user provides key
-        # we would swap to a direct HTTPX call. Kept as a hook for later.
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY or "unused",
-                       session_id=session_id, system_message=system)
-        chat.with_model("gemini", "gemini-3-flash-preview")
-        return chat
-    # mock/fallback: Emergent Universal Key + Gemini 3 Flash (cheap)
+    """Emergent LlmChat fallback (Gemini 3 Flash) — used when no DeepSeek key."""
     return LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id,
                    system_message=system).with_model("gemini",
                                                      "gemini-3-flash-preview")
 
 
+async def _deepseek_text(system: str, prompt: str) -> str:
+    """Call DeepSeek chat completions (OpenAI-compatible)."""
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                     "Content-Type": "application/json"},
+            json=payload,
+        )
+        if r.status_code != 200:
+            try:
+                msg = r.json().get("error", {}).get("message", r.text)
+            except Exception:
+                msg = r.text
+            raise HTTPException(502, f"DeepSeek error: {msg}")
+        data = r.json()
+        return data["choices"][0]["message"]["content"]
+
+
 async def _llm_text(session_id: str, system: str, prompt: str) -> str:
-    if LLM_MODE == "none":
-        raise HTTPException(500,
-                            "No LLM key configured. Add DEEPSEEK_API_KEY or "
-                            "EMERGENT_LLM_KEY to backend/.env.")
-    chat = _new_chat(session_id, system)
-    reply = await chat.send_message(UserMessage(text=prompt))
-    return reply if isinstance(reply, str) else str(reply)
+    if LLM_MODE == "deepseek":
+        try:
+            return await _deepseek_text(system, prompt)
+        except HTTPException as e:
+            # Graceful fallback: if DeepSeek fails (e.g. Insufficient Balance)
+            # and Emergent LLM key is available, use Gemini Flash so the app
+            # keeps working. Surface a warning header in the log.
+            if EMERGENT_LLM_KEY:
+                logger.warning(f"DeepSeek failed ({e.detail}); falling back to Gemini Flash.")
+                chat = _new_chat(session_id, system)
+                reply = await chat.send_message(UserMessage(text=prompt))
+                return reply if isinstance(reply, str) else str(reply)
+            raise
+    if LLM_MODE == "mock":
+        chat = _new_chat(session_id, system)
+        reply = await chat.send_message(UserMessage(text=prompt))
+        return reply if isinstance(reply, str) else str(reply)
+    raise HTTPException(500,
+                        "No LLM key configured. Add DEEPSEEK_API_KEY or "
+                        "EMERGENT_LLM_KEY to backend/.env.")
 
 
 def _extract_json(text: str) -> Any:
@@ -236,6 +271,7 @@ async def delete_lecture(lecture_id: str):
     await db.lectures.delete_one({"id": lecture_id})
     await db.tests.delete_many({"lecture_id": lecture_id})
     await db.attempts.delete_many({"lecture_id": lecture_id})
+    await db.review_items.delete_many({"lecture_id": lecture_id})
     p = TRANSCRIPTS_DIR / f"{lecture_id}.txt"
     if p.exists():
         p.unlink()
@@ -284,7 +320,9 @@ async def generate_summary(lecture_id: str):
         "Produce study notes in RUSSIAN as a JSON object with this shape: "
         '{"summary": "<markdown notes in Russian, 400-800 words, with ## '
         'headings, bullet lists, and a **Определения** block>", '
-        '"key_points": ["короткий тезис 1", ... 5-8 items in Russian]}\n\n'
+        '"key_points": ["короткий тезис 1", ... 5-8 items in Russian]}\n'
+        "IMPORTANT: Do NOT use LaTeX (\\[ \\], $$, \\frac). Write formulas "
+        "as plain text (например: v = s / t; ΔH = -285 кДж/моль).\n\n"
         "TRANSCRIPT:\n\"\"\"\n" + lec.transcript[:15000] + "\n\"\"\""
     )
     raw = await _llm_text(f"summary-{lecture_id}", SUMMARY_SYSTEM, prompt)
@@ -375,7 +413,7 @@ class GradeBody(BaseModel):
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+    return re.sub(r"[^\w\s]+", " ", (s or "").lower(), flags=re.UNICODE).strip()
 
 
 @api.post("/tests/{test_id}/grade", response_model=TestAttempt)
@@ -413,6 +451,50 @@ async def grade(test_id: str, body: GradeBody):
                           graded=graded, score=score, total=total,
                           correct=correct_count)
     await db.attempts.insert_one(attempt.model_dump())
+
+    # ---- Spaced Repetition scheduling ----
+    now = datetime.now(timezone.utc)
+    for q, g in zip(test.questions, graded):
+        existing = await db.review_items.find_one(
+            {"lecture_id": test.lecture_id, "question_id": q.id},
+            {"_id": 0},
+        )
+        if g.is_correct:
+            if not existing:
+                continue  # never missed -> nothing to schedule
+            new_interval = min(30, max(1, existing.get("interval_days", 1) * 2))
+            due = now + timedelta(days=new_interval)
+            await db.review_items.update_one(
+                {"id": existing["id"]},
+                {"$set": {"interval_days": new_interval,
+                          "due_at": due.isoformat(),
+                          "streak": existing.get("streak", 0) + 1,
+                          "last_result": "correct"}},
+            )
+        else:
+            if existing:
+                await db.review_items.update_one(
+                    {"id": existing["id"]},
+                    {"$set": {"interval_days": 1,
+                              "due_at": (now + timedelta(days=1)).isoformat(),
+                              "streak": 0,
+                              "misses": existing.get("misses", 0) + 1,
+                              "last_result": "wrong"}},
+                )
+            else:
+                item = {
+                    "id": str(uuid.uuid4()),
+                    "lecture_id": test.lecture_id,
+                    "question_id": q.id,
+                    "question": q.model_dump(),
+                    "interval_days": 1,
+                    "due_at": (now + timedelta(days=1)).isoformat(),
+                    "misses": 1,
+                    "streak": 0,
+                    "last_result": "wrong",
+                    "created_at": _now(),
+                }
+                await db.review_items.insert_one(item)
     return attempt
 
 
@@ -437,6 +519,123 @@ async def stats():
         if attempts else 0
     return {"lectures": lec_count, "tests": test_count,
             "attempts": attempt_count, "avg_score": avg}
+
+
+@api.post("/transcribe-audio")
+async def transcribe_audio(file: UploadFile = File(...)):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(500, "EMERGENT_LLM_KEY missing.")
+    if not file.filename:
+        raise HTTPException(400, "Empty upload")
+    contents = await file.read()
+    if len(contents) > 25 * 1024 * 1024:
+        raise HTTPException(413, "File too large. Max 25 MB.")
+    buf = io.BytesIO(contents)
+    buf.name = file.filename  # Whisper client uses extension for format
+    stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+    try:
+        resp = await stt.transcribe(file=buf, model="whisper-1",
+                                    response_format="json", language="en")
+        text = getattr(resp, "text", None) or (
+            resp.get("text") if isinstance(resp, dict) else str(resp))
+        return {"text": text or ""}
+    except Exception as e:
+        logger.exception("whisper failed")
+        raise HTTPException(502, f"Transcription failed: {e}")
+
+
+# ============================================================================
+# Spaced Repetition
+# ============================================================================
+
+class ReviewItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    lecture_id: str
+    question_id: str
+    question: Question
+    interval_days: int
+    due_at: str
+    misses: int
+    streak: int
+    last_result: str
+    created_at: str
+
+
+class ReviewAnswer(BaseModel):
+    response: str
+
+
+@api.get("/review/due", response_model=List[ReviewItem])
+async def review_due():
+    now_iso = datetime.now(timezone.utc).isoformat()
+    docs = await db.review_items.find(
+        {"due_at": {"$lte": now_iso}}, {"_id": 0}
+    ).sort("due_at", 1).to_list(500)
+    return [ReviewItem(**d) for d in docs]
+
+
+@api.get("/review/stats")
+async def review_stats():
+    now_iso = datetime.now(timezone.utc).isoformat()
+    total = await db.review_items.count_documents({})
+    due = await db.review_items.count_documents({"due_at": {"$lte": now_iso}})
+    return {"total": total, "due": due}
+
+
+@api.post("/review/{item_id}/answer")
+async def review_answer(item_id: str, body: ReviewAnswer):
+    doc = await db.review_items.find_one({"id": item_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Review item not found")
+    q = Question(**doc["question"])
+    resp = body.response
+    if q.type == "mcq":
+        is_ok = _norm(resp)[:1] == _norm(q.answer)[:1] and bool(resp)
+    elif q.type == "tf":
+        is_ok = _norm(resp) == _norm(q.answer)
+    else:
+        expected = set(_norm(q.answer).split())
+        got = set(_norm(resp).split())
+        is_ok = bool(expected) and len(expected & got) / len(expected) >= 0.6
+
+    now = datetime.now(timezone.utc)
+    if is_ok:
+        new_interval = min(30, max(2, doc.get("interval_days", 1) * 2))
+        due = now + timedelta(days=new_interval)
+        await db.review_items.update_one(
+            {"id": item_id},
+            {"$set": {"interval_days": new_interval,
+                      "due_at": due.isoformat(),
+                      "streak": doc.get("streak", 0) + 1,
+                      "last_result": "correct"}},
+        )
+        next_days = new_interval
+    else:
+        await db.review_items.update_one(
+            {"id": item_id},
+            {"$set": {"interval_days": 1,
+                      "due_at": (now + timedelta(days=1)).isoformat(),
+                      "streak": 0,
+                      "misses": doc.get("misses", 0) + 1,
+                      "last_result": "wrong"}},
+        )
+        next_days = 1
+
+    return {"is_correct": is_ok,
+            "correct_answer": q.answer,
+            "explanation": q.explanation,
+            "next_due_days": next_days}
+
+
+@api.post("/review/seed-now")
+async def review_seed_now():
+    """Debug helper: mark all future review items as due right now."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    r = await db.review_items.update_many(
+        {"due_at": {"$gt": now_iso}}, {"$set": {"due_at": now_iso}}
+    )
+    return {"updated": r.modified_count}
 
 
 app.include_router(api)

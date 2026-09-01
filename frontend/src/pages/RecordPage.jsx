@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Mic, Square, Upload, FileText, Trash2 } from "lucide-react";
+import { Mic, Square, Upload, FileText, Trash2, AudioLines, Loader2 } from "lucide-react";
 import useSpeechRecognition from "@/hooks/useSpeechRecognition";
 import { api } from "@/lib/api";
 
 export default function RecordPage() {
-  const [mode, setMode] = useState("mic"); // mic | paste | upload
+  const [mode, setMode] = useState("mic"); // mic | paste | upload | audio
   const [title, setTitle] = useState("");
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const nav = useNavigate();
@@ -56,6 +58,29 @@ export default function RecordPage() {
     toast.success("Транскрипт загружен.");
   };
 
+  const onAudioFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 25 * 1024 * 1024) {
+      toast.error("Файл больше 25 МБ. Разделите его на части.");
+      return;
+    }
+    if (!title) setTitle(f.name.replace(/\.[^.]+$/, ""));
+    setTranscribing(true);
+    setUploadPct(0);
+    try {
+      const res = await api.transcribeAudio(f, (evt) => {
+        if (evt.total) setUploadPct(Math.round((evt.loaded / evt.total) * 100));
+      });
+      setFinalText(res.text || "");
+      toast.success("Расшифровка готова.");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Не удалось расшифровать аудио.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
   const saveLecture = async () => {
     const transcriptText =
       mode === "paste" ? pasted.trim() : (finalText + " " + interim).trim();
@@ -71,7 +96,7 @@ export default function RecordPage() {
     try {
       const lec = await api.createLecture({
         title: title.trim(),
-        source_type: mode,
+        source_type: mode === "audio" ? "upload" : mode,
         transcript: transcriptText,
       });
       if (elapsed) {
@@ -114,6 +139,7 @@ export default function RecordPage() {
           { k: "mic", label: "Микрофон", icon: Mic },
           { k: "paste", label: "Вставить текст", icon: FileText },
           { k: "upload", label: "Загрузить .txt", icon: Upload },
+          { k: "audio", label: "Аудио → текст", icon: AudioLines },
         ].map(({ k, label, icon: Icon }) => (
           <button
             key={k}
@@ -233,6 +259,51 @@ export default function RecordPage() {
               <div className="p-4 bg-[color:var(--bg)] border border-[color:var(--border)] max-h-[300px] overflow-auto text-[color:var(--ink-soft)] leading-relaxed whitespace-pre-wrap">
                 {finalText.slice(0, 1200)}
                 {finalText.length > 1200 && "…"}
+              </div>
+              <div className="mt-2 font-mono-label">{wordCount} слов</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === "audio" && (
+        <div className="border border-[color:var(--ink)] bg-[color:var(--paper)] p-8 shadow-offset">
+          <div className="text-center mb-4">
+            <AudioLines className="w-8 h-8 mx-auto mb-3 text-[color:var(--muted)]" strokeWidth={1.5} />
+            <p className="text-[color:var(--ink-soft)] max-w-lg mx-auto">
+              Загрузите аудиозапись лекции — распознаём через Whisper и
+              подставляем текст ниже. Поддерживаются <code>mp3, mp4, m4a,
+              wav, webm</code>. Лимит 25 МБ.
+            </p>
+          </div>
+          <div className="flex justify-center">
+            <input
+              type="file"
+              accept="audio/*,video/mp4,.mp3,.mp4,.m4a,.wav,.webm,.mpga,.mpeg"
+              onChange={onAudioFile}
+              disabled={transcribing}
+              data-testid="audio-file-input"
+              className="block"
+            />
+          </div>
+          {transcribing && (
+            <div className="mt-6 flex items-center justify-center gap-3 text-[color:var(--ink-soft)]">
+              <Loader2 className="w-5 h-5 animate-spin" strokeWidth={1.5} />
+              <span data-testid="audio-transcribing">
+                {uploadPct < 100
+                  ? `Загрузка ${uploadPct}%…`
+                  : "Расшифровка Whisper…"}
+              </span>
+            </div>
+          )}
+          {finalText && (
+            <div className="mt-6">
+              <div className="font-mono-label mb-2">Распознанный текст</div>
+              <div
+                data-testid="audio-transcript-preview"
+                className="p-4 bg-[color:var(--bg)] border border-[color:var(--border)] max-h-[300px] overflow-auto text-[color:var(--ink-soft)] leading-relaxed whitespace-pre-wrap"
+              >
+                {finalText}
               </div>
               <div className="mt-2 font-mono-label">{wordCount} слов</div>
             </div>

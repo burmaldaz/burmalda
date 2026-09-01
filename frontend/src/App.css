@@ -128,3 +128,19 @@ body {
   padding: 0 4px;
   border: 1px solid var(--border);
 }
+
+/* Print styles: hide UI chrome, show print-only sections */
+.print-only { display: none; }
+
+@media print {
+  html, body, #root {
+    background: #fff !important;
+    color: #000;
+  }
+  .paper-grain::before { display: none; }
+  aside, .rec-dot, [data-testid="app-sidebar"] { display: none !important; }
+  .print-only { display: block; }
+  .print-hide, [data-testid="lecture-page"] > *:not(.print-only) { display: none !important; }
+  main { padding: 0 !important; }
+  a[href]::after { content: ""; }
+}

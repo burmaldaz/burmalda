@@ -23,4 +23,19 @@ export const api = {
     http.get(`/lectures/${id}/attempts`).then((r) => r.data),
   stats: () => http.get("/stats").then((r) => r.data),
   config: () => http.get("/config").then((r) => r.data),
+  transcribeAudio: (file, onProgress) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return http
+      .post("/transcribe-audio", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 300000,
+        onUploadProgress: onProgress,
+      })
+      .then((r) => r.data);
+  },
+  reviewDue: () => http.get("/review/due").then((r) => r.data),
+  reviewStats: () => http.get("/review/stats").then((r) => r.data),
+  reviewAnswer: (id, response) =>
+    http.post(`/review/${id}/answer`, { response }).then((r) => r.data),
 };
