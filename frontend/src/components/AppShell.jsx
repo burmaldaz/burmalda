@@ -1,19 +1,22 @@
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { Library, Mic, LayoutDashboard, Leaf, Repeat } from "lucide-react";
+import { Library, Mic, LayoutDashboard, Leaf, Repeat, Mail, Sun, Moon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import useTheme from "@/hooks/useTheme";
 
 const nav = [
   { to: "/", label: "Обзор", icon: LayoutDashboard, testId: "nav-overview" },
   { to: "/record", label: "Новая лекция", icon: Mic, testId: "nav-record" },
   { to: "/library", label: "Библиотека", icon: Library, testId: "nav-library" },
   { to: "/review", label: "Повторение", icon: Repeat, testId: "nav-review" },
+  { to: "/digest", label: "Дайджест", icon: Mail, testId: "nav-digest" },
 ];
 
 export default function AppShell() {
   const { pathname } = useLocation();
   const [cfg, setCfg] = useState(null);
   const [reviewStats, setReviewStats] = useState({ due: 0, total: 0 });
+  const { theme, toggle } = useTheme();
 
   useEffect(() => {
     api.config().then(setCfg).catch(() => {});
@@ -26,31 +29,39 @@ export default function AppShell() {
   return (
     <div className="paper-grain min-h-screen relative">
       <div className="relative z-10 flex min-h-screen">
-        {/* Sidebar */}
         <aside
           className="hidden md:flex w-64 flex-col border-r border-[color:var(--border)] bg-[color:var(--paper)]"
           data-testid="app-sidebar"
         >
-          <div className="p-6 border-b border-[color:var(--border)]">
+          <div className="p-6 border-b border-[color:var(--border)] flex items-start justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 border border-[color:var(--ink)] flex items-center justify-center bg-[color:var(--terracotta)]">
                 <Leaf className="w-4 h-4 text-white" strokeWidth={1.75} />
               </div>
               <div>
                 <div className="font-serif-display text-xl leading-none">
-                  Palimpsest
+                  upsidestudy
                 </div>
                 <div className="font-mono-label mt-1">Помощник по лекциям</div>
               </div>
             </div>
+            <button
+              onClick={toggle}
+              data-testid="theme-toggle"
+              title={theme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              className="border border-[color:var(--border)] hover:border-[color:var(--ink)] w-8 h-8 flex items-center justify-center"
+            >
+              {theme === "dark" ? (
+                <Sun className="w-4 h-4" strokeWidth={1.5} />
+              ) : (
+                <Moon className="w-4 h-4" strokeWidth={1.5} />
+              )}
+            </button>
           </div>
 
           <nav className="flex-1 p-3">
             {nav.map(({ to, label, icon: Icon, testId }) => {
-              const active =
-                to === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(to);
+              const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
               return (
                 <NavLink
                   key={to}
@@ -86,6 +97,9 @@ export default function AppShell() {
             <div className="font-mono-label">Движок</div>
             <div className="text-sm mt-1 text-[color:var(--ink)]">
               {cfg?.llm_mode === "deepseek" ? "DeepSeek" : "Gemini Flash"}
+              {cfg?.email_enabled && (
+                <span className="text-[color:var(--muted)]"> · Resend</span>
+              )}
             </div>
             {cfg?.is_mocked && (
               <div
@@ -104,12 +118,14 @@ export default function AppShell() {
             <div className="w-7 h-7 border border-[color:var(--ink)] flex items-center justify-center bg-[color:var(--terracotta)]">
               <Leaf className="w-3.5 h-3.5 text-white" strokeWidth={1.75} />
             </div>
-            <div className="font-serif-display text-lg leading-none">Palimpsest</div>
+            <div className="font-serif-display text-lg leading-none">upsidestudy</div>
           </div>
           <div className="flex gap-1">
+            <button onClick={toggle} data-testid="theme-toggle-mobile" className="p-2 border border-[color:var(--border)]">
+              {theme === "dark" ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
+            </button>
             {nav.map(({ to, icon: Icon, testId }) => {
-              const active =
-                to === "/" ? pathname === "/" : pathname.startsWith(to);
+              const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
               return (
                 <NavLink
                   key={to}

@@ -3,7 +3,8 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import Markdown from "@/components/Markdown";
-import { Sparkles, GraduationCap, ArrowLeft, Loader2, History, Printer } from "lucide-react";
+import TranscriptWithTerms from "@/components/TranscriptWithTerms";
+import { Sparkles, GraduationCap, ArrowLeft, Loader2, History, Printer, BookOpen } from "lucide-react";
 
 export default function LecturePage() {
   const { id } = useParams();
@@ -52,6 +53,17 @@ export default function LecturePage() {
     } finally { setBusy(null); }
   };
 
+  const onGenerateGlossary = async () => {
+    setBusy("glossary");
+    try {
+      const r = await api.generateGlossary(id);
+      setLec((l) => ({ ...l, glossary: r.terms }));
+      toast.success(`Готово · ${r.terms.length} терминов.`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Не удалось собрать глоссарий.");
+    } finally { setBusy(null); }
+  };
+
   if (!lec) return <div className="p-10 font-mono-label">Загрузка…</div>;
 
   return (
@@ -94,6 +106,19 @@ export default function LecturePage() {
             {lec.summary ? "Перегенерировать конспект" : "Создать конспект"}
           </button>
           <button
+            data-testid="generate-glossary-btn"
+            disabled={busy || !lec.transcript}
+            onClick={onGenerateGlossary}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[color:var(--paper)] border border-[color:var(--ink)] shadow-offset-sm hover-lift disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            {busy === "glossary" ? (
+              <Loader2 className="w-4 h-4 animate-spin" strokeWidth={1.5} />
+            ) : (
+              <BookOpen className="w-4 h-4" strokeWidth={1.5} />
+            )}
+            {lec.glossary?.length ? "Обновить глоссарий" : "Глоссарий"}
+          </button>
+          <button
             data-testid="generate-test-btn"
             disabled={busy || !lec.summary}
             onClick={onGenerateTest}
@@ -117,13 +142,7 @@ export default function LecturePage() {
               {lec.transcript.split(/\s+/).filter(Boolean).length} слов
             </div>
           </div>
-          <div
-            data-testid="transcript-view"
-            className="whitespace-pre-wrap leading-relaxed text-[color:var(--ink-soft)] max-h-[70vh] overflow-auto"
-            style={{ fontSize: "1.05rem" }}
-          >
-            {lec.transcript || "Транскрипта пока нет."}
-          </div>
+          <TranscriptWithTerms text={lec.transcript} terms={lec.glossary || []} />
         </div>
 
         <div className="p-6 md:p-8">
@@ -158,6 +177,33 @@ export default function LecturePage() {
           )}
         </div>
       </div>
+
+      {lec.glossary?.length > 0 && (
+        <div className="mt-10">
+          <h2 className="font-serif-display text-2xl mb-4 flex items-center gap-2">
+            <BookOpen className="w-5 h-5" strokeWidth={1.5} /> Глоссарий · {lec.glossary.length}
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {lec.glossary.map((t, i) => (
+              <div
+                key={i}
+                data-testid={`glossary-item-${t.term.toLowerCase()}`}
+                className="border border-[color:var(--border)] bg-[color:var(--paper)] p-4"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="font-serif-display text-xl">{t.term}</div>
+                  <div className="font-mono-label">{t.translation}</div>
+                </div>
+                {t.definition && (
+                  <div className="text-sm text-[color:var(--ink-soft)] mt-2 leading-relaxed">
+                    {t.definition}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(tests.length > 0 || attempts.length > 0) && (
         <div className="mt-10">

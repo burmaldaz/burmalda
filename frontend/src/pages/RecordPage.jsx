@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Mic, Square, Upload, FileText, Trash2, AudioLines, Loader2 } from "lucide-react";
+import { Mic, Square, Upload, FileText, Trash2, AudioLines, Loader2, QrCode, Smartphone } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import useSpeechRecognition from "@/hooks/useSpeechRecognition";
 import { api } from "@/lib/api";
 
 export default function RecordPage() {
-  const [mode, setMode] = useState("mic"); // mic | paste | upload | audio
+  const [mode, setMode] = useState("mic"); // mic | paste | upload | audio | phone
   const [title, setTitle] = useState("");
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,6 +15,9 @@ export default function RecordPage() {
   const [uploadPct, setUploadPct] = useState(0);
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
+  const [phoneLecId, setPhoneLecId] = useState(null);
+  const [phoneTranscript, setPhoneTranscript] = useState("");
+  const [phoneCreating, setPhoneCreating] = useState(false);
   const nav = useNavigate();
 
   const {
@@ -81,6 +85,37 @@ export default function RecordPage() {
     }
   };
 
+  const startPhoneSession = async () => {
+    if (!title.trim()) return toast.error("Сначала укажите название лекции.");
+    setPhoneCreating(true);
+    try {
+      const lec = await api.createLecture({
+        title: title.trim(),
+        source_type: "mic",
+        transcript: "",
+      });
+      setPhoneLecId(lec.id);
+      setPhoneTranscript("");
+      toast.success("Отсканируйте QR — телефон подключён к этой лекции.");
+    } catch (e) {
+      toast.error("Не удалось создать лекцию.");
+    } finally {
+      setPhoneCreating(false);
+    }
+  };
+
+  // Poll the lecture while phone session is active.
+  useEffect(() => {
+    if (!phoneLecId) return;
+    const iv = setInterval(async () => {
+      try {
+        const l = await api.getLecture(phoneLecId);
+        setPhoneTranscript(l.transcript || "");
+      } catch (_) {}
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [phoneLecId]);
+
   const saveLecture = async () => {
     const transcriptText =
       mode === "paste" ? pasted.trim() : (finalText + " " + interim).trim();
@@ -137,6 +172,7 @@ export default function RecordPage() {
       <div className="flex flex-wrap gap-2 mb-6">
         {[
           { k: "mic", label: "Микрофон", icon: Mic },
+          { k: "phone", label: "Телефон (QR)", icon: Smartphone },
           { k: "paste", label: "Вставить текст", icon: FileText },
           { k: "upload", label: "Загрузить .txt", icon: Upload },
           { k: "audio", label: "Аудио → текст", icon: AudioLines },
@@ -311,16 +347,91 @@ export default function RecordPage() {
         </div>
       )}
 
-      <div className="mt-8 flex justify-end">
-        <button
-          onClick={saveLecture}
-          disabled={busy}
-          data-testid="save-lecture-btn"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-[color:var(--sage)] text-white border border-[color:var(--ink)] shadow-offset hover-lift disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {busy ? "Сохраняем…" : "Сохранить и открыть"}
-        </button>
-      </div>
+      {mode === "phone" && (
+        <div className="border border-[color:var(--ink)] bg-[color:var(--paper)] p-6 md:p-8 shadow-offset">
+          {!phoneLecId ? (
+            <div className="text-center">
+              <QrCode className="w-8 h-8 mx-auto mb-3 text-[color:var(--muted)]" strokeWidth={1.5} />
+              <p className="text-[color:var(--ink-soft)] max-w-lg mx-auto mb-5">
+                Создаём лекцию, показываем QR-код — открываете его камерой
+                телефона, включаете микрофон, кладёте телефон на парту.
+                Расшифровка приезжает сюда каждые ~4 секунды.
+              </p>
+              <button
+                onClick={startPhoneSession}
+                disabled={phoneCreating}
+                data-testid="phone-start-btn"
+                className="inline-flex items-center gap-2 px-5 py-3 bg-[color:var(--terracotta)] text-white border border-[color:var(--ink)] shadow-offset-sm hover-lift disabled:opacity-60"
+              >
+                {phoneCreating ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} /> : <QrCode className="w-4 h-4" strokeWidth={2} />}
+                Показать QR
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex flex-col items-center justify-center">
+                <div className="p-4 bg-white border border-[color:var(--ink)] shadow-offset-sm" data-testid="phone-qr">
+                  <QRCodeSVG
+                    value={`${window.location.origin}/m/${phoneLecId}`}
+                    size={220}
+                    level="M"
+                    bgColor="#ffffff"
+                    fgColor="#1c201f"
+                  />
+                </div>
+                <div className="font-mono-label mt-3">Отсканируйте камерой</div>
+                <a
+                  href={`${window.location.origin}/m/${phoneLecId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="phone-link"
+                  className="mt-1 text-xs text-[color:var(--ink-soft)] underline decoration-dotted break-all max-w-full text-center"
+                >
+                  {`${window.location.origin}/m/${phoneLecId}`}
+                </a>
+              </div>
+              <div>
+                <div className="font-mono-label mb-2">Транскрипт с телефона (обновляется)</div>
+                <div
+                  data-testid="phone-transcript"
+                  className="min-h-[220px] max-h-[400px] overflow-auto p-4 border border-[color:var(--border)] bg-[color:var(--bg)] leading-relaxed whitespace-pre-wrap"
+                >
+                  {phoneTranscript || (
+                    <span className="text-[color:var(--muted)]">
+                      Ждём, пока телефон начнёт слать текст…
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="font-mono-label">
+                    {phoneTranscript.split(/\s+/).filter(Boolean).length} слов
+                  </div>
+                  <button
+                    onClick={() => nav(`/lecture/${phoneLecId}`)}
+                    data-testid="phone-open-lecture"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-[color:var(--ink)] text-[color:var(--paper)] border border-[color:var(--ink)] shadow-offset-sm hover-lift text-sm"
+                  >
+                    Открыть лекцию →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode !== "phone" && (
+        <div className="mt-8 flex justify-end">
+          <button
+            onClick={saveLecture}
+            disabled={busy}
+            data-testid="save-lecture-btn"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[color:var(--sage)] text-white border border-[color:var(--ink)] shadow-offset hover-lift disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {busy ? "Сохраняем…" : "Сохранить и открыть"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,10 @@ import httpx
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAISpeechToText
+import resend
+import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -41,6 +45,14 @@ db = mongo_client[os.environ["DB_NAME"]]
 # ---- LLM config: DeepSeek (real) if key present, else fallback ----
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev").strip()
+DIGEST_EMAIL = os.environ.get("DIGEST_EMAIL", "").strip()
+DIGEST_CRON_DAY = os.environ.get("DIGEST_CRON_DAY", "sun").strip()
+DIGEST_CRON_HOUR = int(os.environ.get("DIGEST_CRON_HOUR", "20"))
+
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 LLM_MODE = "deepseek" if DEEPSEEK_API_KEY else ("mock" if EMERGENT_LLM_KEY else "none")
 
@@ -66,8 +78,9 @@ class Lecture(BaseModel):
     transcript: str = ""
     summary: Optional[str] = None
     key_points: List[str] = Field(default_factory=list)
+    glossary: List[dict] = Field(default_factory=list)  # [{term, translation, definition}]
     duration_sec: Optional[int] = None
-    llm_mode: str = LLM_MODE  # tag which engine produced content
+    llm_mode: str = LLM_MODE
     created_at: str = Field(default_factory=_now)
     updated_at: str = Field(default_factory=_now)
 
@@ -237,7 +250,10 @@ async def root():
 @api.get("/config")
 async def get_config():
     return {"llm_mode": LLM_MODE,
-            "is_mocked": LLM_MODE != "deepseek"}
+            "is_mocked": LLM_MODE != "deepseek",
+            "email_enabled": bool(RESEND_API_KEY),
+            "digest_email": DIGEST_EMAIL,
+            "digest_schedule": f"{DIGEST_CRON_DAY} {DIGEST_CRON_HOUR:02d}:00 UTC"}
 
 
 # ---- Lectures CRUD ----
@@ -638,6 +654,208 @@ async def review_seed_now():
     return {"updated": r.modified_count}
 
 
+# ============================================================================
+# Glossary
+# ============================================================================
+
+GLOSSARY_SYSTEM = (
+    "You are a bilingual English↔Russian academic assistant. From a raw "
+    "university lecture transcript in English, extract the ~10–15 most "
+    "important domain-specific terms (nouns and short phrases) that a "
+    "Russian-speaking student would want in a study glossary. Skip common "
+    "words. Return strict JSON only."
+)
+
+
+@api.post("/lectures/{lecture_id}/glossary")
+async def generate_glossary(lecture_id: str):
+    doc = await db.lectures.find_one({"id": lecture_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Lecture not found")
+    lec = Lecture(**doc)
+    if not lec.transcript.strip():
+        raise HTTPException(400, "Lecture has no transcript yet.")
+
+    prompt = (
+        "Extract a glossary from the following English lecture transcript. "
+        "Return JSON exactly like:\n"
+        "{\"terms\":[{\"term\":\"<English term>\","
+        "\"translation\":\"<Russian translation>\","
+        "\"definition\":\"<1-2 sentence definition in Russian>\"}]}\n"
+        "Rules:\n"
+        "- 8 to 15 items, ordered by importance.\n"
+        "- Term must be the exact English form as used in the transcript "
+        "(lowercase unless proper noun).\n"
+        "- Definition in Russian, one or two sentences.\n"
+        "- Skip common words (e.g. 'system', 'process' alone).\n\n"
+        "TRANSCRIPT:\n\"\"\"\n" + lec.transcript[:15000] + "\n\"\"\""
+    )
+    raw = await _llm_text(f"glossary-{lecture_id}", GLOSSARY_SYSTEM, prompt)
+    try:
+        data = _extract_json(raw)
+        terms = data.get("terms", [])[:20]
+    except Exception as e:
+        raise HTTPException(500, f"Failed to parse glossary JSON: {e}")
+
+    # Sanitize entries
+    clean = []
+    for t in terms:
+        if not isinstance(t, dict):
+            continue
+        term = str(t.get("term", "")).strip()
+        translation = str(t.get("translation", "")).strip()
+        definition = str(t.get("definition", "")).strip()
+        if term and translation:
+            clean.append({"term": term, "translation": translation,
+                          "definition": definition})
+
+    await db.lectures.update_one(
+        {"id": lecture_id},
+        {"$set": {"glossary": clean, "updated_at": _now()}},
+    )
+    return {"terms": clean}
+
+
+@api.get("/glossary/all")
+async def glossary_all():
+    """Aggregate every term across all lectures, deduped by lowercase term."""
+    lectures = await db.lectures.find(
+        {"glossary": {"$ne": []}},
+        {"_id": 0, "id": 1, "title": 1, "glossary": 1, "created_at": 1},
+    ).to_list(1000)
+    seen: dict = {}
+    for l in lectures:
+        for t in l.get("glossary", []):
+            key = t["term"].lower()
+            if key in seen:
+                continue
+            seen[key] = {**t,
+                         "lecture_id": l["id"],
+                         "lecture_title": l["title"]}
+    return {"terms": sorted(seen.values(), key=lambda x: x["term"].lower())}
+
+
+# ============================================================================
+# Weekly Digest (Resend)
+# ============================================================================
+
+def _digest_html(new_lectures: list, due_count: int, avg_score: int) -> str:
+    rows = "".join([
+        f"<tr><td style='padding:8px 0;border-bottom:1px solid #e6e0d5;'>"
+        f"<div style='font-family:Georgia,serif;font-size:18px;color:#1c201f;'>{l['title']}</div>"
+        f"<div style='font-size:12px;color:#8c9690;letter-spacing:1px;text-transform:uppercase;margin-top:4px;'>"
+        f"{l.get('duration_sec',0)//60 if l.get('duration_sec') else 0} мин · "
+        f"{len((l.get('transcript') or '').split())} слов · "
+        f"{'конспект готов' if l.get('summary') else 'без конспекта'}"
+        f"</div></td></tr>"
+        for l in new_lectures[:10]
+    ]) or "<tr><td style='padding:16px 0;color:#8c9690;'>За эту неделю новых лекций не появилось.</td></tr>"
+
+    return f"""
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#f4f1eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1c201f;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1eb;padding:32px 16px;">
+<tr><td align="center">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#fcfbf9;border:1px solid #1c201f;box-shadow:3px 3px 0 0 #1c201f;">
+    <tr><td style="padding:32px 40px 8px;">
+      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#8c9690;">— upsidestudy · еженедельная сводка</div>
+      <h1 style="font-family:Georgia,serif;font-size:32px;font-weight:600;margin:12px 0 4px;color:#1c201f;">Что произошло на этой неделе</h1>
+      <div style="font-size:14px;color:#4a524d;">Новых лекций: <strong>{len(new_lectures)}</strong> · Карточек к повторению: <strong>{due_count}</strong> · Средний балл тестов: <strong>{avg_score}%</strong></div>
+    </td></tr>
+    <tr><td style="padding:8px 40px 24px;">
+      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#8c9690;margin-bottom:8px;">Новые лекции</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">{rows}</table>
+    </td></tr>
+    <tr><td style="padding:16px 40px 32px;">
+      <div style="background:#d86e53;color:#fff;border:1px solid #1c201f;padding:16px 20px;box-shadow:2px 2px 0 0 #b75640;">
+        <div style="font-family:Georgia,serif;font-size:20px;">Пора повторить</div>
+        <div style="font-size:13px;margin-top:4px;">{due_count} карточ{'ка' if due_count%10==1 and due_count%100!=11 else 'ки' if 2<=due_count%10<=4 and not 12<=due_count%100<=14 else 'ек'} готов{'а' if due_count%10==1 and due_count%100!=11 else 'ы'} к повторению прямо сейчас.</div>
+      </div>
+    </td></tr>
+    <tr><td style="padding:0 40px 32px;font-size:11px;color:#8c9690;text-align:center;">
+      upsidestudy — ваш помощник по лекциям.
+    </td></tr>
+  </table>
+</td></tr></table></body></html>"""
+
+
+async def _build_digest():
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    new_lectures = await db.lectures.find(
+        {"created_at": {"$gte": week_ago}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    due_count = await db.review_items.count_documents({"due_at": {"$lte": now_iso}})
+    attempts = await db.attempts.find(
+        {"created_at": {"$gte": week_ago}}, {"_id": 0, "score": 1}
+    ).to_list(500)
+    avg_score = int(round(sum(a["score"] for a in attempts) / len(attempts))) if attempts else 0
+    subject = f"upsidestudy · {len(new_lectures)} лекций, {due_count} к повторению"
+    html = _digest_html(new_lectures, due_count, avg_score)
+    return {"subject": subject, "html": html,
+            "new_lectures": len(new_lectures),
+            "due_count": due_count, "avg_score": avg_score}
+
+
+@api.get("/digest/preview")
+async def digest_preview():
+    return await _build_digest()
+
+
+class DigestSend(BaseModel):
+    to: Optional[str] = None
+
+
+@api.post("/digest/send")
+async def digest_send(body: DigestSend = DigestSend()):
+    if not RESEND_API_KEY:
+        raise HTTPException(400, "Resend не настроен (нет RESEND_API_KEY).")
+    recipient = (body.to or DIGEST_EMAIL or "").strip()
+    if not recipient:
+        raise HTTPException(400, "Не указан адрес получателя.")
+    digest = await _build_digest()
+    params = {"from": SENDER_EMAIL, "to": [recipient],
+              "subject": digest["subject"], "html": digest["html"]}
+    try:
+        result = await asyncio.to_thread(resend.Emails.send, params)
+    except Exception as e:
+        logger.exception("Resend failed")
+        raise HTTPException(502, f"Resend error: {e}")
+    return {"ok": True, "email_id": getattr(result, "id", None) or (
+        result.get("id") if isinstance(result, dict) else None),
+            "to": recipient}
+
+
+# ============================================================================
+# Scheduler — weekly digest cron
+# ============================================================================
+
+scheduler: Optional[AsyncIOScheduler] = None
+
+
+async def _scheduled_digest():
+    if not (RESEND_API_KEY and DIGEST_EMAIL):
+        logger.info("Weekly digest skipped: Resend not configured.")
+        return
+    try:
+        await digest_send(DigestSend(to=DIGEST_EMAIL))  # type: ignore[arg-type]
+        logger.info(f"Weekly digest sent to {DIGEST_EMAIL}")
+    except Exception as e:
+        logger.exception(f"Weekly digest failed: {e}")
+
+
+@app.on_event("startup")
+async def _startup():
+    global scheduler
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.add_job(_scheduled_digest,
+                      CronTrigger(day_of_week=DIGEST_CRON_DAY,
+                                  hour=DIGEST_CRON_HOUR, minute=0),
+                      id="weekly-digest", replace_existing=True)
+    scheduler.start()
+    logger.info(f"Scheduler started · digest on {DIGEST_CRON_DAY} {DIGEST_CRON_HOUR:02d}:00 UTC")
+
+
 app.include_router(api)
 
 app.add_middleware(
@@ -651,4 +869,6 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def _shutdown():
+    if scheduler:
+        scheduler.shutdown(wait=False)
     mongo_client.close()

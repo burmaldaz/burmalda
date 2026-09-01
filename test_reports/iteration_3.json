@@ -1,0 +1,62 @@
+{
+  "summary": "Iteration 3 full test pass (backend pytest 13 new tests + 16 regression tests, plus frontend E2E on the public preview URL). Backend: /api/config returns llm_mode=deepseek, is_mocked=false, email_enabled=true, digest_email=workspace67676752@gmail.com, digest_schedule='sun 20:00 UTC'; POST /api/lectures/{id}/glossary returned 14 well-formed terms (term/translation/definition, Cyrillic translations, terms literally present in transcript) and persisted them on the lecture (verified via GET); 404 for unknown lecture and 400 for empty transcript; GET /api/glossary/all returns deduped, alphabetically sorted terms with lecture_id/lecture_title; GET /api/digest/preview returns subject starting with 'upsidestudy' + full HTML + int stats; POST /api/digest/send (empty JSON body and explicit {to}) returned 200 with ok/email_id/to; PATCH /api/lectures/{id}/transcript append=true appends + persists duration_sec, append=false replaces, 404 for unknown id. Delete cascade of review_items (iteration-2 minor bug) is fixed; _norm() Cyrillic bug is fixed. Frontend: 5 sidebar nav items all present and SPA-navigable, no ЗАГЛУШКА badge, engine shows 'DeepSeek · Resend'; theme toggle flips html[data-theme] light<->dark, changes computed colors, persists in localStorage 'palimpsest-theme' across reload; automated contrast scan on /, /library, /review, /digest and /lecture/:id in dark mode found no low-contrast (<2.0) text. /record shows all 5 modes; phone mode blocks without title (toast 'Сначала укажите название лекции.', no QR), with title renders QR SVG, phone-link -> /m/{id}, and the live pane picked up a simulated appended chunk within ~3s. /m/{id} renders lecture title, mobile-start and mobile-transcript. /digest renders 4 stat tiles + iframe preview (h1 'Что произошло на этой неделе'), Отправить себе -> POST /digest/send 200 + success toast with recipient, Скопировать HTML -> success toast (needs clipboard permission). Lecture page: Глоссарий/Обновить глоссарий button generates terms (POST 200, toast 'Готово · 14 терминов.'), 14 glossary cards render, 15 dashed-underlined .term-hl spans in transcript with title=translation and click opens term-popover showing term + translation + Russian definition; clicking popover closes it. No critical bugs found; 3 minor UX issues below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/digest/send",
+        "issue": "Requires a JSON body: a POST with no body at all returns 422 (DigestSend model param has no default). Frontend always sends {} so this is not user-visible, but for curl/cron-style callers give the body a default: `body: DigestSend = DigestSend()`."
+      },
+      {
+        "endpoint": "POST /api/lectures (phone/QR flow)",
+        "issue": "The QR flow creates the lecture as soon as 'Показать QR' is clicked. If the user never records, an empty-transcript lecture stays in the library/digest forever. Consider cleaning up empty phone lectures or creating the lecture only on the first chunk."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "MobileRecordPage (/m/:id)",
+        "issue": "For an unknown lecture id the page shows 'Загрузка…' forever and still leaves 'Начать запись' enabled, so a user can record into a nonexistent lecture and every 4s PATCH silently 404s (only console errors). Show a terminal error state and disable mobile-start when the lecture failed to load. Also the 'Лекция не найдена.' toast fires twice (StrictMode double effect).",
+        "selector": "[data-testid=\"mobile-title\"], [data-testid=\"mobile-start\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/m/:id (phone recording page)",
+        "issues": ["MobileRecordPage does not call useTheme, so html[data-theme] is never set there; a user with dark theme selected gets a light page on the phone (and page uses --paper defaults). Add useTheme() (or set the attribute in index.js) so the theme applies on non-AppShell routes."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/seed_iter3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "MobileRecordPage: handle lecture-not-found (disable start button, show error state) and de-duplicate the error toast.",
+    "Apply the persisted theme on the /m/:id route (useTheme or set data-theme globally in index.js).",
+    "Optional: give DigestSend a default so POST /api/digest/send works without a body; consider not creating an empty lecture until the phone sends the first chunk."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 875 lines — split into routers (lectures, tests/grading, review, glossary, digest, scheduler) before it grows further.",
+    "_scheduled_digest calls the route handler digest_send() directly; extract a plain async send_digest(recipient) helper so the cron path doesn't depend on FastAPI request-model plumbing.",
+    "POST /api/review/seed-now is still an ungated debug endpoint that rewrites all review scheduling — gate it behind an env flag.",
+    "Glossary generation has no cap/guard on repeated calls; each click re-hits the LLM and overwrites terms (acceptable, but consider a spinner-lock/idempotency note).",
+    "Glossary term highlighting relies on the LLM returning exact transcript surface forms; if the model returns lemmas the highlight silently disappears. Consider a fuzzy/stem fallback in TranscriptWithTerms."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/seed_iter3.py"
+  ],
+  "success_rate": {"backend": "100% (13 passed, 1 skipped by design; 16/16 regression passed)", "frontend": "95% (all new flows work; 1 medium mobile-route edge case + 1 theme scoping gap)"},
+  "seed_data_creation": "Created and then deleted TEST_ lectures (TEST_Glossary UI Seed with a 14-term glossary, TEST_Phone QR Session, TEST_Append/Replace/Empty). DB left with the original 3 lectures: 'Test SR flow', 'Supply and Demand E2E', 'Photosynthesis Basics'. Two real digest emails were sent to workspace67676752@gmail.com during testing.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "None required — /app/memory/test_credentials.md states the app is single-user with no auth (confirmed, all routes public).",
+  "context_for_next_testing_agent": "Reusable suites: /app/backend/tests/backend_test.py (iterations 1-2: config, summary, test gen, transcription, spaced repetition) and /app/backend/tests/test_iteration3.py (config extras, transcript append, glossary, digest). Use /app/backend/tests/seed_iter3.py to create a lecture with a real glossary for UI testing (prints the lecture id). Note pytest.ini uses -n 2 --dist loadscope. Clipboard tests need page.context.grant_permissions(['clipboard-read','clipboard-write']). Sonner toasts auto-dismiss ~4s — poll for them instead of a long sleep. Digest send hits the real Resend API and sends real email; avoid spamming.",
+  "rca_of_the_issue": "Mobile route issue: MobileRecordPage's initial fetch failure only toasts and leaves lec=null, while the record button state depends solely on `supported`; no error flag gates the UI. Theme issue: data-theme is set exclusively inside AppShell via useTheme, and /m/:id is rendered outside AppShell, so the attribute is never applied there."
+}

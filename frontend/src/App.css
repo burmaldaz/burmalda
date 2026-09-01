@@ -1,6 +1,6 @@
-/* Botanical Brutalism aesthetic */
+/* Botanical Brutalism aesthetic — light + dark */
 
-:root {
+:root, [data-theme="light"] {
   --paper: #FCFBF9;
   --bg: #F4F1EB;
   --bg-2: #EAE6DF;
@@ -12,6 +12,22 @@
   --terracotta-deep: #B75640;
   --sage: #7A9A84;
   --sage-deep: #5F7E68;
+  --grain-opacity: 0.55;
+}
+
+[data-theme="dark"] {
+  --paper: #1F2321;
+  --bg: #16191A;
+  --bg-2: #232827;
+  --ink: #F0EBDD;
+  --ink-soft: #B8B2A3;
+  --muted: #7B857F;
+  --border: #363B39;
+  --terracotta: #E58467;
+  --terracotta-deep: #D86E53;
+  --sage: #94B49F;
+  --sage-deep: #7A9A84;
+  --grain-opacity: 0.35;
 }
 
 html, body, #root {
@@ -23,11 +39,15 @@ html, body, #root {
 body {
   font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "ss01" on, "cv11" on;
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .font-serif-display {
-  font-family: "Cormorant Garamond", "Times New Roman", serif;
-  letter-spacing: -0.01em;
+  font-family: "Fraunces", "Georgia", serif;
+  font-optical-sizing: auto;
+  font-variation-settings: "SOFT" 30, "WONK" 0;
+  letter-spacing: -0.015em;
 }
 .font-mono-label {
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -49,27 +69,22 @@ body {
   background-size: 3px 3px, 7px 7px;
   background-position: 0 0, 1px 1px;
   mix-blend-mode: multiply;
-  opacity: 0.55;
+  opacity: var(--grain-opacity);
   z-index: 0;
+}
+[data-theme="dark"] .paper-grain::before {
+  background-image:
+    radial-gradient(rgba(240,235,221,0.04) 1px, transparent 1px),
+    radial-gradient(rgba(240,235,221,0.02) 1px, transparent 1px);
+  mix-blend-mode: screen;
 }
 
 /* Sharp offset shadow */
-.shadow-offset {
-  box-shadow: 3px 3px 0 0 var(--ink);
-}
-.shadow-offset-sm {
-  box-shadow: 2px 2px 0 0 var(--ink);
-}
-.shadow-offset-terracotta {
-  box-shadow: 3px 3px 0 0 var(--terracotta-deep);
-}
-.hover-lift:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 0 var(--ink);
-}
-.hover-lift {
-  transition: transform 120ms ease, box-shadow 120ms ease;
-}
+.shadow-offset { box-shadow: 3px 3px 0 0 var(--ink); }
+.shadow-offset-sm { box-shadow: 2px 2px 0 0 var(--ink); }
+.shadow-offset-terracotta { box-shadow: 3px 3px 0 0 var(--terracotta-deep); }
+.hover-lift:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 0 var(--ink); }
+.hover-lift { transition: transform 120ms ease, box-shadow 120ms ease; }
 
 /* Recording pulse */
 @keyframes pulse-dot {
@@ -84,59 +99,62 @@ body {
   animation: pulse-dot 1.15s ease-in-out infinite;
 }
 
-/* Selection */
-::selection {
-  background: #D86E5333;
-  color: var(--ink);
-}
+::selection { background: color-mix(in srgb, var(--terracotta) 35%, transparent); color: var(--ink); }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: #D1CCC2;
-  border: 2px solid var(--bg);
-  border-radius: 0;
-}
+::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid var(--bg); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
-/* Prose (summary) */
+/* Prose (summary) — Fraunces for readable long-form */
+.prose-notes {
+  font-family: "Fraunces", "Georgia", serif;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+}
 .prose-notes h2 {
-  font-family: "Cormorant Garamond", serif;
-  font-size: 1.5rem;
+  font-family: "Fraunces", serif;
+  font-size: 1.55rem;
   font-weight: 600;
   color: var(--ink);
-  margin: 1.75rem 0 0.5rem;
+  margin: 1.9rem 0 0.55rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.35rem;
+  padding-bottom: 0.4rem;
+  letter-spacing: -0.01em;
 }
 .prose-notes h3 {
-  font-family: "Cormorant Garamond", serif;
-  font-size: 1.15rem;
+  font-family: "Fraunces", serif;
+  font-size: 1.2rem;
   font-weight: 600;
   color: var(--ink);
-  margin: 1.25rem 0 0.35rem;
+  margin: 1.35rem 0 0.4rem;
 }
-.prose-notes p { margin: 0.6rem 0; color: var(--ink-soft); line-height: 1.75; }
-.prose-notes ul { margin: 0.5rem 0 0.75rem 1.15rem; }
-.prose-notes li { margin: 0.35rem 0; color: var(--ink-soft); line-height: 1.7; }
-.prose-notes strong { color: var(--ink); }
+.prose-notes p { margin: 0.7rem 0; }
+.prose-notes ul { margin: 0.55rem 0 0.85rem 1.2rem; }
+.prose-notes li { margin: 0.4rem 0; }
+.prose-notes strong { color: var(--ink); font-weight: 600; }
 .prose-notes code {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.85em;
   background: var(--bg-2);
   padding: 0 4px;
   border: 1px solid var(--border);
+  color: var(--ink);
 }
 
-/* Print styles: hide UI chrome, show print-only sections */
-.print-only { display: none; }
+/* Glossary term chip inline in transcript */
+.term-hl {
+  border-bottom: 1px dashed var(--terracotta);
+  cursor: help;
+  color: var(--ink);
+}
+.term-hl:hover { background: color-mix(in srgb, var(--terracotta) 15%, transparent); }
 
+/* Print styles */
+.print-only { display: none; }
 @media print {
-  html, body, #root {
-    background: #fff !important;
-    color: #000;
-  }
+  html, body, #root { background: #fff !important; color: #000; }
   .paper-grain::before { display: none; }
   aside, .rec-dot, [data-testid="app-sidebar"] { display: none !important; }
   .print-only { display: block; }

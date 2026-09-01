@@ -38,4 +38,9 @@ export const api = {
   reviewStats: () => http.get("/review/stats").then((r) => r.data),
   reviewAnswer: (id, response) =>
     http.post(`/review/${id}/answer`, { response }).then((r) => r.data),
+  generateGlossary: (id) =>
+    http.post(`/lectures/${id}/glossary`).then((r) => r.data),
+  glossaryAll: () => http.get("/glossary/all").then((r) => r.data),
+  digestPreview: () => http.get("/digest/preview").then((r) => r.data),
+  digestSend: (to) => http.post("/digest/send", to ? { to } : {}).then((r) => r.data),
 };
