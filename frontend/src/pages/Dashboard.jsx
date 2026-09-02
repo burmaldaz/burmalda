@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { Mic, Library, ScrollText, Trophy, ArrowUpRight } from "lucide-react";
+import { Mic, Library, ScrollText, Trophy, ArrowUpRight, Flame } from "lucide-react";
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -37,7 +37,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-10">
+      <div className="flex flex-wrap gap-3 mb-8">
         <Link
           to="/record"
           data-testid="cta-record"
@@ -55,6 +55,55 @@ export default function Dashboard() {
           Открыть библиотеку
         </Link>
       </div>
+
+      {/* Streak card */}
+      <Link
+        to="/review"
+        data-testid="streak-card"
+        className="group block mb-10 border border-[color:var(--ink)] bg-[color:var(--paper)] shadow-offset hover-lift"
+      >
+        <div className="flex flex-col md:flex-row items-stretch">
+          <div className={`flex items-center justify-center p-6 md:p-8 md:w-56 border-b md:border-b-0 md:border-r border-[color:var(--ink)] ${
+              stats?.streak > 0 ? "bg-[color:var(--terracotta)]" : "bg-[color:var(--bg-2)]"
+            }`}>
+            <div className="relative">
+              <Flame
+                className={`w-16 h-16 ${
+                  stats?.streak > 0 ? "text-white" : "text-[color:var(--muted)]"
+                } ${stats?.reviewed_today ? "flame-glow" : ""}`}
+                strokeWidth={1.5}
+                fill={stats?.streak > 0 ? "currentColor" : "none"}
+                data-testid="streak-flame"
+              />
+              {stats?.streak > 0 && (
+                <div
+                  className="absolute -bottom-2 -right-3 bg-[color:var(--ink)] text-[color:var(--paper)] px-2 py-0.5 text-sm font-mono-label border border-[color:var(--paper)]"
+                  data-testid="streak-badge"
+                >
+                  {stats.streak}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
+            <div className="font-mono-label mb-2">— Серия повторений</div>
+            <div className="font-serif-display text-3xl md:text-4xl leading-tight">
+              {stats == null
+                ? "…"
+                : stats.streak === 0
+                ? "Начнём новую цепочку?"
+                : `${stats.streak} ${daysWord(stats.streak)} подряд`}
+            </div>
+            <div className="text-[color:var(--ink-soft)] mt-2">
+              {stats?.reviewed_today
+                ? "Сегодня уже занимались — серия не сгорит."
+                : stats?.streak > 0
+                ? "Ещё не занимались сегодня — не потеряйте серию."
+                : "Одна карточка в день — и цепочка растёт."}
+            </div>
+          </div>
+        </div>
+      </Link>
 
       <div className="grid grid-cols-2 md:grid-cols-4 border border-[color:var(--border)] bg-[color:var(--paper)] mb-10">
         {tiles.map(({ key, label, icon: Icon, value }, i) => (
@@ -121,4 +170,11 @@ export default function Dashboard() {
 
 function sourceLabel(s) {
   return s === "mic" ? "микрофон" : s === "paste" ? "вставка" : "загрузка";
+}
+
+function daysWord(n) {
+  const m = n % 10, k = n % 100;
+  if (m === 1 && k !== 11) return "день";
+  if ([2, 3, 4].includes(m) && ![12, 13, 14].includes(k)) return "дня";
+  return "дней";
 }

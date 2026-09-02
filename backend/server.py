@@ -355,6 +355,20 @@ async def generate_summary(lecture_id: str):
     lec.llm_mode = LLM_MODE
     await db.lectures.update_one({"id": lecture_id},
                                  {"$set": lec.model_dump()})
+
+    # Auto-generate glossary in the background so the transcript is highlighted
+    # without an extra button click. Failures are logged, not raised.
+    try:
+        terms = await _build_glossary(lec.transcript)
+        if terms:
+            lec.glossary = terms
+            await db.lectures.update_one(
+                {"id": lecture_id},
+                {"$set": {"glossary": terms, "updated_at": _now()}},
+            )
+    except Exception as e:
+        logger.warning(f"Auto-glossary failed: {e}")
+
     return lec
 
 
@@ -688,15 +702,10 @@ GLOSSARY_SYSTEM = (
 )
 
 
-@api.post("/lectures/{lecture_id}/glossary")
-async def generate_glossary(lecture_id: str):
-    doc = await db.lectures.find_one({"id": lecture_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(404, "Lecture not found")
-    lec = Lecture(**doc)
-    if not lec.transcript.strip():
-        raise HTTPException(400, "Lecture has no transcript yet.")
-
+async def _build_glossary(transcript: str) -> list:
+    """Shared helper used by the endpoint and by auto-generation on summary."""
+    if not transcript.strip():
+        return []
     prompt = (
         "Extract a glossary from the following English lecture transcript. "
         "Return JSON exactly like:\n"
@@ -709,16 +718,11 @@ async def generate_glossary(lecture_id: str):
         "(lowercase unless proper noun).\n"
         "- Definition in Russian, one or two sentences.\n"
         "- Skip common words (e.g. 'system', 'process' alone).\n\n"
-        "TRANSCRIPT:\n\"\"\"\n" + lec.transcript[:15000] + "\n\"\"\""
+        "TRANSCRIPT:\n\"\"\"\n" + transcript[:15000] + "\n\"\"\""
     )
-    raw = await _llm_text(f"glossary-{lecture_id}", GLOSSARY_SYSTEM, prompt)
-    try:
-        data = _extract_json(raw)
-        terms = data.get("terms", [])[:20]
-    except Exception as e:
-        raise HTTPException(500, f"Failed to parse glossary JSON: {e}")
-
-    # Sanitize entries
+    raw = await _llm_text("glossary-auto", GLOSSARY_SYSTEM, prompt)
+    data = _extract_json(raw)
+    terms = data.get("terms", [])[:20]
     clean = []
     for t in terms:
         if not isinstance(t, dict):
@@ -729,6 +733,21 @@ async def generate_glossary(lecture_id: str):
         if term and translation:
             clean.append({"term": term, "translation": translation,
                           "definition": definition})
+    return clean
+
+
+@api.post("/lectures/{lecture_id}/glossary")
+async def generate_glossary(lecture_id: str):
+    doc = await db.lectures.find_one({"id": lecture_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Lecture not found")
+    lec = Lecture(**doc)
+    if not lec.transcript.strip():
+        raise HTTPException(400, "Lecture has no transcript yet.")
+    try:
+        clean = await _build_glossary(lec.transcript)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to parse glossary JSON: {e}")
 
     await db.lectures.update_one(
         {"id": lecture_id},

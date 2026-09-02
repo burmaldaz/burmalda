@@ -36,7 +36,11 @@ export default function LecturePage() {
     try {
       const updated = await api.generateSummary(id);
       setLec(updated);
-      toast.success("Конспект готов.");
+      toast.success(
+        updated.glossary?.length
+          ? `Конспект готов · глоссарий (${updated.glossary.length})`
+          : "Конспект готов."
+      );
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Не удалось создать конспект.");
     } finally { setBusy(null); }
