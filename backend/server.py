@@ -533,8 +533,23 @@ async def stats():
                                            "score": 1}).to_list(1000)
     avg = int(round(sum(a["score"] for a in attempts) / len(attempts))) \
         if attempts else 0
+
+    # Streak: consecutive days (including today or yesterday) with review activity.
+    days = await db.review_days.find({}, {"_id": 0, "day": 1}).to_list(1000)
+    day_set = {d["day"] for d in days}
+    today = datetime.now(timezone.utc).date()
+    streak = 0
+    # Grace: if reviewed today OR yesterday, streak is unbroken.
+    cursor_day = today if today.isoformat() in day_set else (
+        today - timedelta(days=1) if (today - timedelta(days=1)).isoformat() in day_set else None)
+    while cursor_day and cursor_day.isoformat() in day_set:
+        streak += 1
+        cursor_day = cursor_day - timedelta(days=1)
+    reviewed_today = today.isoformat() in day_set
+
     return {"lectures": lec_count, "tests": test_count,
-            "attempts": attempt_count, "avg_score": avg}
+            "attempts": attempt_count, "avg_score": avg,
+            "streak": streak, "reviewed_today": reviewed_today}
 
 
 @api.post("/transcribe-audio")
@@ -637,6 +652,12 @@ async def review_answer(item_id: str, body: ReviewAnswer):
                       "last_result": "wrong"}},
         )
         next_days = 1
+
+    # Track this day for the streak counter.
+    today = now.strftime("%Y-%m-%d")
+    await db.review_days.update_one(
+        {"day": today}, {"$set": {"day": today}}, upsert=True,
+    )
 
     return {"is_correct": is_ok,
             "correct_answer": q.answer,
