@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 6 testing (password reset via Resend + Emergent Google Auth). Backend: 13/13 pytest tests passed (forgot-password known/unknown/invalid email, Resend delivery with fallback to DIGEST_EMAIL, reset-password bad/expired/wrong-type/short-password rejections, valid-token reset with auto-login cookies + old-password 401 + new-password 200, emergent-session invalid 401 & missing field 422, login/me + /api/config regression). Frontend: /login shows email/password form, 'или' divider, google-signin button, link-forgot, Регистрация; Google button navigates to https://auth.emergentagent.com/?redirect=https%3A%2F%2F<host>%2Fauth%2Fcallback (verified via navigation log, OAuth not completed); /forgot-password submit shows 'Проверьте почту.' + working 'Вернуться ко входу'; /reset-password?token=INVALID shows 'Пароли не совпадают.' client-side then 'Неверный токен восстановления.' in reset-error; valid token from backend log resets password, auto-logs-in and lands on dashboard; /auth/callback with no hash and with #session_id=invalid both redirect to /login with error toast. Admin password verified back at 'admin1234' (API login 200).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/forgot-password", "issue": "No rate limiting — endpoint can be hit repeatedly for the same email (email-bombing / Resend quota burn). Consider per-email cooldown."},
+      {"endpoint": "/api/auth/reset-password", "issue": "Reset token is a stateless JWT and is NOT invalidated after use; the same link can be replayed for a full hour (verified reusable). Consider storing a jti/password_changed_at and rejecting used tokens."},
+      {"endpoint": "/api/auth/login", "issue": "No brute-force lockout after repeated failed logins (playbook item 4) — unlimited 401 attempts allowed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6_reset.py",
+    "/app/test_reports/pytest/iter6.xml"
+  ],
+  "action_items": [
+    "Optional hardening: rate-limit /api/auth/forgot-password",
+    "Optional hardening: single-use reset tokens (invalidate after password change)",
+    "Optional: brute-force lockout on /api/auth/login"
+  ],
+  "critical_code_review_comments": [
+    "Reset tokens are replayable within their 1h TTL — add password_changed_at check in reset_password to invalidate older tokens.",
+    "Resend test mode rejects non-owner recipients; fallback to DIGEST_EMAIL works and is logged, but in production the loop would silently email the fallback address if the real send fails for any reason (e.g. transient error) — consider only using fallback when the error is the test-mode restriction.",
+    "server.py is 1323 lines — consider splitting into routers (auth, lectures, tests, digest)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration6_reset.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Admin password was temporarily changed to TESTreset9876 during the valid-reset test and restored to admin1234 (verified login 200).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@upsidestudy.app / admin1234 (verified working after tests)",
+  "context_for_next_testing_agent": "Run new iter6 suite with `cd /app/backend && python -m pytest tests/test_iteration6_reset.py -n 0` (pytest.ini forces xdist; -n 0 needed for sequential password-reset tests). Reset tokens can be pulled from /var/log/supervisor/backend.err.log via regex '\\[reset\\] link for .*token=([A-Za-z0-9._-]+)'. Resend always fails to admin@upsidestudy.app (test-mode) and succeeds to workspace67676752@gmail.com — expected. Google OAuth cannot be completed end-to-end; only the redirect URL and the 401 path for invalid session_id were verified.",
+  "rca_of_the_issue": "No functional defects found. Password reset + Emergent session endpoints and all four new/updated frontend pages behave as specified."
+}

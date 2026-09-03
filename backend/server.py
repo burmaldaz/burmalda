@@ -114,6 +114,12 @@ def create_record_token(lecture_id: str) -> str:
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 
+def create_reset_token(user_id: str) -> str:
+    payload = {"sub": user_id, "type": "reset",
+               "exp": datetime.now(timezone.utc) + timedelta(hours=1)}
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
+
 def _set_auth_cookies(resp: Response, access: str, refresh: str):
     resp.set_cookie("access_token", access, httponly=True, secure=True,
                     samesite="none", max_age=ACCESS_TTL_MIN * 60, path="/")
@@ -439,6 +445,146 @@ async def refresh_token(request: Request, response: Response):
     response.set_cookie("access_token", access, httponly=True, secure=True,
                         samesite="none", max_age=ACCESS_TTL_MIN * 60, path="/")
     return {"ok": True}
+
+
+# ---- Password reset ----
+
+class ForgotBody(BaseModel):
+    email: EmailStr
+
+
+class ResetBody(BaseModel):
+    token: str
+    password: str = Field(min_length=6, max_length=200)
+
+
+def _reset_email_html(name: str, link: str) -> str:
+    return f"""
+<!doctype html><html><body style="margin:0;padding:0;background:#f4f1eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1c201f;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1eb;padding:32px 16px;"><tr><td align="center">
+  <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#fcfbf9;border:1px solid #1c201f;box-shadow:3px 3px 0 0 #1c201f;">
+    <tr><td style="padding:32px 40px 8px;">
+      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#8c9690;">— upsidestudy · восстановление пароля</div>
+      <h1 style="font-family:Georgia,serif;font-size:28px;font-weight:600;margin:12px 0 8px;color:#1c201f;">Привет, {name or 'друг'}.</h1>
+      <p style="font-size:15px;color:#4a524d;line-height:1.5;">Кто-то попросил сбросить пароль для этого аккаунта. Ссылка действует один час. Если это были не вы — просто удалите письмо.</p>
+    </td></tr>
+    <tr><td style="padding:16px 40px 32px;">
+      <a href="{link}" style="display:inline-block;background:#d86e53;color:#fff;padding:14px 28px;text-decoration:none;border:1px solid #1c201f;box-shadow:3px 3px 0 0 #1c201f;font-family:Georgia,serif;font-size:16px;">Сбросить пароль</a>
+      <div style="font-size:11px;color:#8c9690;margin-top:16px;">Не работает кнопка? Скопируйте адрес:</div>
+      <div style="font-size:11px;color:#4a524d;margin-top:4px;word-break:break-all;font-family:'Courier New',monospace;">{link}</div>
+    </td></tr>
+    <tr><td style="padding:0 40px 32px;font-size:11px;color:#8c9690;text-align:center;">upsidestudy — ваш помощник по лекциям.</td></tr>
+  </table>
+</td></tr></table></body></html>"""
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotBody):
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    # Always answer OK to avoid revealing which emails exist.
+    if not user:
+        logger.info(f"[reset] user for {email} not found; no email sent.")
+        return {"ok": True}
+    token = create_reset_token(user["id"])
+    link = f"{FRONTEND_URL}/reset-password?token={token}"
+    logger.info(f"[reset] link for {email}: {link}")
+    if RESEND_API_KEY:
+        # Resend test mode only delivers to the account holder. Attempt
+        # delivery to the user's real email; if Resend rejects, fall back
+        # to DIGEST_EMAIL so at least you receive the link during dev.
+        recipients_to_try = [email]
+        if DIGEST_EMAIL and DIGEST_EMAIL != email:
+            recipients_to_try.append(DIGEST_EMAIL)
+        for recipient in recipients_to_try:
+            try:
+                await asyncio.to_thread(
+                    resend.Emails.send,
+                    {"from": SENDER_EMAIL, "to": [recipient],
+                     "subject": "upsidestudy · восстановление пароля",
+                     "html": _reset_email_html(user.get("name", ""), link)})
+                logger.info(f"[reset] mail sent to {recipient}")
+                break
+            except Exception as e:
+                logger.warning(f"[reset] send to {recipient} failed: {e}")
+    return {"ok": True}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetBody, response: Response):
+    try:
+        payload = pyjwt.decode(body.token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(400, "Ссылка устарела. Запросите новую.")
+    except pyjwt.PyJWTError:
+        raise HTTPException(400, "Неверный токен восстановления.")
+    if payload.get("type") != "reset":
+        raise HTTPException(400, "Неверный тип токена.")
+    user = await db.users.find_one({"id": payload["sub"]})
+    if not user:
+        raise HTTPException(404, "Пользователь не найден.")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(body.password)}})
+    # Auto-login after reset
+    access = create_access_token(user["id"], user["email"])
+    refresh = create_refresh_token(user["id"])
+    _set_auth_cookies(response, access, refresh)
+    return {"ok": True}
+
+
+# ---- Emergent-managed Google Auth ----
+
+class EmergentSessionBody(BaseModel):
+    session_id: str
+
+
+@api.post("/auth/emergent-session")
+async def emergent_session(body: EmergentSessionBody, response: Response):
+    """Exchange an Emergent Auth session_id for our own JWT session."""
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": body.session_id},
+        )
+    if r.status_code != 200:
+        raise HTTPException(401, "Не удалось подтвердить сессию Google.")
+    data = r.json()
+    email = (data.get("email") or "").lower().strip()
+    name = data.get("name") or (email.split("@")[0] if email else "user")
+    if not email:
+        raise HTTPException(400, "Google не вернул почту.")
+    user = await db.users.find_one({"email": email})
+    if user is None:
+        # Create user without a usable password (random hash) — user can set
+        # one later via forgot-password.
+        user = {
+            "id": str(uuid.uuid4()),
+            "email": email,
+            "name": name,
+            "password_hash": hash_password(uuid.uuid4().hex),
+            "role": "user",
+            "created_at": _now(),
+            "freeze_dates": [],
+            "picture": data.get("picture"),
+            "auth_provider": "google",
+        }
+        await db.users.insert_one(user)
+    else:
+        # Update profile picture / name if Google has fresher data.
+        updates = {}
+        if data.get("picture") and user.get("picture") != data["picture"]:
+            updates["picture"] = data["picture"]
+        if name and not user.get("name"):
+            updates["name"] = name
+        if updates:
+            await db.users.update_one({"id": user["id"]}, {"$set": updates})
+            user.update(updates)
+    access = create_access_token(user["id"], email)
+    refresh = create_refresh_token(user["id"])
+    _set_auth_cookies(response, access, refresh)
+    public = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
+    return {"user": public}
 
 
 # ---- Config (public) ----

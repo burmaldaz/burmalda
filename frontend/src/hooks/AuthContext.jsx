@@ -18,7 +18,14 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    // Skip /me check while returning from Emergent Auth — the callback
+    // handler will process the session_id and set our cookies first.
+    if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
+      return;
+    }
+    refresh();
+  }, [refresh]);
 
   const login = async (email, password) => {
     const r = await api.login({ email, password });

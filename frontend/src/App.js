@@ -12,6 +12,9 @@ import ReviewPage from "@/pages/ReviewPage";
 import DigestPage from "@/pages/DigestPage";
 import MobileRecordPage from "@/pages/MobileRecordPage";
 import AuthPage from "@/pages/AuthPage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
+import AuthCallback from "@/pages/AuthCallback";
 import useTheme from "@/hooks/useTheme";
 import { AuthProvider } from "@/hooks/AuthContext";
 
@@ -36,6 +39,9 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/register" element={<AuthPage mode="register" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/m/:id" element={<MobileRecordPage />} />
           <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />

@@ -14,6 +14,12 @@ export const api = {
   login: (body) => http.post("/auth/login", body).then((r) => r.data),
   logout: () => http.post("/auth/logout").then((r) => r.data),
   me: () => http.get("/auth/me").then((r) => r.data),
+  forgotPassword: (email) =>
+    http.post("/auth/forgot-password", { email }).then((r) => r.data),
+  resetPassword: (token, password) =>
+    http.post("/auth/reset-password", { token, password }).then((r) => r.data),
+  emergentSession: (sessionId) =>
+    http.post("/auth/emergent-session", { session_id: sessionId }).then((r) => r.data),
 
   // Lectures
   listLectures: () => http.get("/lectures").then((r) => r.data),
