@@ -16,6 +16,7 @@ export default function RecordPage() {
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [phoneLecId, setPhoneLecId] = useState(null);
+  const [phoneToken, setPhoneToken] = useState(null);
   const [phoneTranscript, setPhoneTranscript] = useState("");
   const [phoneCreating, setPhoneCreating] = useState(false);
   const nav = useNavigate();
@@ -94,7 +95,9 @@ export default function RecordPage() {
         source_type: "mic",
         transcript: "",
       });
+      const tokenResp = await api.createRecordToken(lec.id);
       setPhoneLecId(lec.id);
+      setPhoneToken(tokenResp.token);
       setPhoneTranscript("");
       toast.success("Отсканируйте QR — телефон подключён к этой лекции.");
     } catch (e) {
@@ -372,7 +375,7 @@ export default function RecordPage() {
               <div className="flex flex-col items-center justify-center">
                 <div className="p-4 bg-white border border-[color:var(--ink)] shadow-offset-sm" data-testid="phone-qr">
                   <QRCodeSVG
-                    value={`${window.location.origin}/m/${phoneLecId}`}
+                    value={`${window.location.origin}/m/${phoneLecId}?t=${phoneToken}`}
                     size={220}
                     level="M"
                     bgColor="#ffffff"
@@ -381,7 +384,7 @@ export default function RecordPage() {
                 </div>
                 <div className="font-mono-label mt-3">Отсканируйте камерой</div>
                 <a
-                  href={`${window.location.origin}/m/${phoneLecId}`}
+                  href={`${window.location.origin}/m/${phoneLecId}?t=${phoneToken}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid="phone-link"

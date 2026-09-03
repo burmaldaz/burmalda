@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 5 (JWT cookie auth + per-user isolation + streak freeze) tested end-to-end against the public preview URL. Backend: new suite /app/backend/tests/test_iteration5_auth.py = 35 tests, 34 pass. Verified register (200, httpOnly+secure access_token/refresh_token cookies, no password_hash/_id leak), duplicate email 409, 422 for short password / bad email, login 200 (admin role=admin), wrong password + unknown email 401, /auth/me 200 via cookie and via Authorization: Bearer fallback, 401 without token and for garbage token, /auth/refresh issues a new access_token from the refresh cookie (401 without cookie, 401 when an access token is presented as refresh), /auth/logout clears cookies and subsequent /auth/me is 401, admin password_hash is bcrypt $2b$. No-auth leak matrix: GET/POST /lectures, /stats, /glossary/all, /review/due, /review/stats, /review/seed-now, /digest/preview, /digest/send, /streak/freeze, /auth/logout all return 401 unauthenticated -> no public data leak. Isolation: user A's lecture is invisible to user B; B gets 404 on GET/summary/record-token/DELETE and 403 on PATCH transcript with its own access token; owner data untouched; delete->404 verified. Migration: admin still sees exactly the 3 legacy lectures (Test SR flow, Supply and Demand E2E, Photosynthesis Basics). Streak: /api/stats returns full shape; fresh user can_freeze=true -> POST /streak/freeze 200 {ok, frozen_on=today, covers_days:2}; second call 400 'Заморозка уже использована на этой неделе.'; stats then can_freeze=false, next_freeze_in_days=7, freeze_dates contains today. Record-token flow: POST record-token 200 {token,url=/m/{id}}, GET /mobile?t=token 200 (no cookies, no _id), 401 without/invalid token, 403 when a user access token is passed as ?t, PATCH transcript with Bearer record token appends twice ('chunk one. chunk two.') and persists duration_sec, 403 for a record token pointing at another lecture, 401 unauthenticated. Regression: legacy suites (backend_test.py, test_iteration3.py) updated to authenticate; 28/30 pass (2 real failures below). Frontend: unauthenticated / and /library redirect to /login; register -> dashboard with user-email in sidebar and empty state; freeze button enabled -> click -> becomes 'Можно через 7 дн.' disabled + freeze-history; logout -> /login; wrong password shows auth-error 'Неверная почта или пароль.'; admin login shows streak 3, stats 3/3/3/37%, 3 legacy lecture rows, library 3 cards, freeze button already disabled; /m/{id} without token and with bogus token both show 'ССЫЛКА НЕДЕЙСТВИТЕЛЬНА / Откройте QR заново'; /m/{id}?t=validtoken shows the lecture title and mobile-start. Review page renders a due card under auth.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/digest/send", "issue": "REGRESSION: recipient is now the logged-in user's email (digest['to'] = user['email']) instead of the configured DIGEST_EMAIL. With the unverified Resend sandbox sender the API rejects it, so the endpoint always returns 502: 'Resend error: You can only send testing emails to your own email address (workspace67676752@gmail.com)...'. Reproduced via API and via the UI 'Отправить себе' button (console 502, no success). Either keep DIGEST_EMAIL as the recipient in preview, or fall back to DIGEST_EMAIL when the user's email is not the verified Resend address, and surface a readable error toast.", "priority": "HIGH"},
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force protection: 6+ consecutive wrong-password attempts all return 401 with no lockout/rate limit (playbook requires lockout after 5 failures; expected 423/429). Test test_brute_force_lockout fails.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/config", "issue": "REGRESSION: 'digest_email' field was dropped in the rewrite. DigestPage.jsx line 45 still reads cfg?.digest_email and falls back to '—'. Re-add the field or remove the dead UI."},
+      {"endpoint": "POST /api/auth/register, POST /api/auth/login", "issue": "Both return the raw access_token in the JSON body, which defeats the httpOnly-cookie design (token becomes readable by JS/XSS). Only return {user} unless a mobile client genuinely needs the bearer."},
+      {"endpoint": "DELETE /api/lectures/{id}", "issue": "Cascade deletes (tests/attempts/review_items) filter only by lecture_id, not user_id. Ownership of the lecture is checked first so impact is low, but the cascade should be scoped to user_id for defence in depth."},
+      {"endpoint": "docs vs code", "issue": "/app/memory/test_credentials.md and /app/auth_testing.md claim access token = 15 min and refresh = 7 days; code uses ACCESS_TTL_MIN = 24h and REFRESH_TTL_DAYS = 30. Align docs or code."},
+      {"endpoint": "CORS", "issue": "app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=_origins or ['*']) — if FRONTEND_URL were ever empty the fallback '*' with allow_credentials=True is invalid and would silently break cookie auth. Currently FRONTEND_URL is set, so behaviour is correct; make the fallback fail fast instead."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Digest -> 'Отправить себе'", "issue": "Click triggers POST /api/digest/send which returns 502 (Resend recipient restriction, see backend critical). No visible error state remained on screen after 8s; user gets no actionable feedback.", "affected_selectors": ["button:has-text('Отправить себе')"]}
+    ],
+    "design_issues": [
+      {"screen": "Dashboard streak card (disabled freeze button)", "issues": ["When the freeze is already used, 'Можно через 7 дн.' is rendered as light-grey text on the terracotta/beige streak card — very low contrast and hard to read. Use a darker foreground or an outlined chip for the disabled state."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5_auth.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter5_auth.xml",
+    "/app/test_reports/pytest/iter5_regression.xml"
+  ],
+  "action_items": [
+    "Fix POST /api/digest/send recipient so 'Отправить себе' works in preview (use DIGEST_EMAIL / fallback when user email is not Resend-verified) and show an error toast on 502.",
+    "Add brute-force lockout or rate limiting on /api/auth/login (5 failures -> 423/429) per the auth playbook.",
+    "Re-add 'digest_email' to /api/config or remove the dead reference in DigestPage.jsx.",
+    "Stop returning access_token in register/login JSON bodies (keep cookie-only).",
+    "Scope lecture delete cascade queries by user_id.",
+    "Improve contrast of the disabled freeze button label on the streak card.",
+    "Sync token-TTL documentation (15m/7d) with the implemented 24h/30d."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py is 1171 lines — split into modules (auth.py, lectures.py, review.py, digest.py, llm.py) per the >700-line rule.",
+    "get_current_user and update_transcript duplicate the cookie/Bearer token extraction + decode block; extract one helper.",
+    "/auth/refresh re-implements the access-cookie set instead of reusing _set_auth_cookies-style helper.",
+    "No password reset/change endpoint and no login attempt logging; consider before production.",
+    "Auth cookies use secure=True + samesite=none, so nothing works over plain http://localhost — acceptable for the preview but tests/dev must use the https ingress (noted for future testers)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5_auth.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration3.py"
+  ],
+  "success_rate": {"backend": "97% (34/35 new auth tests; 28/30 regression)", "frontend": "95% (all auth/freeze/mobile flows pass; digest send fails due to backend 502)"},
+  "seed_data_creation": "Several throwaway users test-<uuid>@example.com (password testpass123 / qapass1234) created by the auth + isolation + freeze tests; their lectures were deleted at the end of each test. No seeded/admin data modified except admin's existing freeze_dates (unchanged) — admin already had a freeze on 2026-09-03 from the developer's smoke test, so admin's freeze button is legitimately disabled for 7 days.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@upsidestudy.app / admin1234 (from /app/memory/test_credentials.md) — valid, login works.",
+  "context_for_next_testing_agent": "Auth suite: /app/backend/tests/test_iteration5_auth.py (run with the repo pytest.ini, xdist loadscope). Legacy suites now log in as admin via a client fixture reading /app/memory/test_credentials.md. Cookies are secure+samesite=none so localhost:8001 needs Authorization: Bearer (login response still returns access_token). Admin freeze is consumed until ~2026-09-10, so test the enabled freeze path with a freshly registered user. Known open failures: brute-force lockout missing, POST /api/digest/send 502 (Resend recipient), /api/config missing digest_email. Note: writing files under /app/backend/tests triggers uvicorn reload and can cause spurious 502s on in-flight requests — keep ad-hoc probe scripts in /tmp.",
+  "rca_of_the_issue": "digest/send 502: _build_digest_for now sets to=current_user.email and digest_send passes that to Resend; the Resend key is in sandbox mode with an unverified domain, so it only accepts workspace67676752@gmail.com as recipient — every authenticated user (including admin@upsidestudy.app) gets 'You can only send testing emails to your own email address'. Confirmed by calling the endpoint on 127.0.0.1:8001 with a Bearer token (the public URL masks the JSON detail with an ingress 502 HTML page). Brute-force: /auth/login has no attempt counter/lockout logic in server.py at all."
+}

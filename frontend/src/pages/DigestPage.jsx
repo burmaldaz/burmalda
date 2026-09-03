@@ -40,11 +40,15 @@ export default function DigestPage() {
           </h1>
           <p className="text-[color:var(--ink-soft)] mt-3 max-w-2xl">
             Сводка новых лекций и карточек к повторению за последние 7 дней.
-            Автоматически уходит на почту{" "}
-            <span className="font-mono-label text-[color:var(--ink)]">
-              {cfg?.digest_email || "—"}
-            </span>{" "}
-            по расписанию:
+            {cfg?.digest_email_fallback && (
+              <>
+                {" "}Тестовый режим Resend — письма уходят на{" "}
+                <span className="font-mono-label text-[color:var(--ink)]">
+                  {cfg.digest_email_fallback}
+                </span>{". "}
+              </>
+            )}
+            Расписание:
             <span className="inline-flex items-center gap-1 ml-1 font-mono-label text-[color:var(--ink)]">
               <Calendar className="w-3.5 h-3.5" strokeWidth={1.5} />
               {cfg?.digest_schedule || "—"}

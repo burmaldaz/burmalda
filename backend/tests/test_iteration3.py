@@ -24,10 +24,25 @@ TRANSCRIPT = (
 )
 
 
+def _admin_creds():
+    import re
+    from pathlib import Path
+    c = Path("/app/memory/test_credentials.md").read_text(encoding="utf-8")
+    e = re.search(r'(?im)^\s*(?:[-*]\s*)?(?:\*\*)?email(?:\*\*)?\s*:\s*`?([^`\s]+)', c)
+    p = re.search(r'(?im)^\s*(?:[-*]\s*)?(?:\*\*)?password(?:\*\*)?\s*:\s*`?([^`\s]+)', c)
+    assert e and p, "missing admin credentials"
+    return e.group(1), p.group(1)
+
+
 @pytest.fixture(scope="module")
 def client():
+    """Authenticated session (iteration 5: all data endpoints require auth)."""
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    email, password = _admin_creds()
+    r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+    if r.status_code != 200:
+        pytest.fail(f"admin login failed {r.status_code}: {r.text[:300]}")
     return s
 
 
@@ -196,7 +211,7 @@ class TestDigest:
     def test_send_no_body_at_all(self, client):
         """Frontend axios always sends {}; verify raw no-body behaviour too."""
         time.sleep(1)
-        r = requests.post(f"{API}/digest/send", timeout=120)
+        r = client.post(f"{API}/digest/send", timeout=120)
         assert r.status_code in (200, 422, 502), r.text[:300]
         if r.status_code == 422:
             pytest.skip("no-body POST returns 422 (body required) - frontend sends {} so OK")

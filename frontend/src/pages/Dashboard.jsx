@@ -1,16 +1,35 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { Mic, Library, ScrollText, Trophy, ArrowUpRight, Flame } from "lucide-react";
+import { Mic, Library, ScrollText, Trophy, ArrowUpRight, Flame, Snowflake } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [lectures, setLectures] = useState([]);
+  const [freezing, setFreezing] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
     api.stats().then(setStats).catch(() => {});
     api.listLectures().then(setLectures).catch(() => {});
-  }, []);
+  };
+  useEffect(() => { load(); }, []);
+
+  const freeze = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!stats?.can_freeze) return;
+    setFreezing(true);
+    try {
+      await api.freezeStreak();
+      toast.success("Серия заморожена на 2 дня.");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Не получилось.");
+    } finally {
+      setFreezing(false);
+    }
+  };
 
   const tiles = [
     { key: "lectures", label: "Лекций", icon: ScrollText, value: stats?.lectures ?? "—" },
@@ -100,6 +119,28 @@ export default function Dashboard() {
                 : stats?.streak > 0
                 ? "Ещё не занимались сегодня — не потеряйте серию."
                 : "Одна карточка в день — и цепочка растёт."}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2 items-center">
+              <button
+                onClick={freeze}
+                disabled={!stats?.can_freeze || freezing}
+                data-testid="freeze-streak-btn"
+                className={`inline-flex items-center gap-2 px-3 py-2 border border-[color:var(--ink)] shadow-offset-sm hover-lift text-sm ${
+                  stats?.can_freeze
+                    ? "bg-[color:var(--paper)] text-[color:var(--ink)]"
+                    : "bg-[color:var(--bg-2)] text-[color:var(--ink)] opacity-90 cursor-not-allowed"
+                }`}
+              >
+                <Snowflake className="w-4 h-4" strokeWidth={1.5} />
+                {stats?.can_freeze
+                  ? "Заморозить на 2 дня"
+                  : `Можно через ${stats?.next_freeze_in_days ?? "—"} дн.`}
+              </button>
+              {stats?.freeze_dates?.length > 0 && (
+                <span className="font-mono-label" data-testid="freeze-history">
+                  Последняя · {stats.freeze_dates[0]}
+                </span>
+              )}
             </div>
           </div>
         </div>

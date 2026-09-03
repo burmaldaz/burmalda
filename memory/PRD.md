@@ -30,6 +30,20 @@
 - Полностью русский интерфейс.
 - Backend: 100% (23/23) — endpoints `/config`, CRUD `/lectures`, `/transcript`, `/summary`, `/test`, `/grade`, `/attempts`, `/stats`.
 
+## Реализовано (2026-02-05) — Итерация 5: Auth + Freeze Streak
+- **Регистрация и вход по email/паролю** — bcrypt-хэш + JWT в httpOnly cookies (24h access + 30d refresh). Endpoints: `/api/auth/register`, `/login`, `/logout`, `/me`, `/refresh`. Валидация Pydantic + EmailStr, минимальная длина пароля 6.
+- **Полная изоляция данных**: каждый документ (`lectures`, `tests`, `attempts`, `review_items`, `review_days`) содержит `user_id`. Все endpoints фильтруют по `current_user.id`. Каскадные удаления по `lecture_id + user_id`.
+- **Admin-сид**: при старте бэкенд создаёт `admin@upsidestudy.app / admin1234` (из `ADMIN_EMAIL/ADMIN_PASSWORD`) и мигрирует все legacy-документы (без `user_id`) под этого админа.
+- **Freeze Streak**: `POST /api/streak/freeze` добавляет сегодняшнюю дату в `user.freeze_dates`. Правило: одна заморозка на скользящую неделю. `_compute_streak()` учитывает `freeze_set` — если день пропущен, но покрыт заморозкой в пределах последних 3 дней, серия продолжает считаться. `/api/stats` возвращает `can_freeze`, `next_freeze_in_days`, `freeze_dates`. Кнопка `Снежинка + Заморозить на 2 дня` на карточке серии.
+- **QR-запись с телефона под auth**: `POST /api/lectures/{id}/record-token` (auth) возвращает JWT (24h, scope `record`). QR-URL `/m/{id}?t={token}`. PATCH transcript теперь принимает либо user-cookie, либо record-token из `Authorization: Bearer`. Мобильная страница получает данные лекции через `/api/lectures/{id}/mobile?t={token}`.
+- **Frontend**: `AuthProvider`, `ProtectedRoute`, страница `AuthPage` (login/register в одной), navigation `/login` при 401. `axios.withCredentials = true`.
+- Пофиксы (по итерации 4 testing_agent — backend 97% / frontend 95%):
+  - `access_token` больше не возвращается в body login/register (cookies only).
+  - `POST /api/digest/send` использует `DIGEST_EMAIL` как fallback для тестового режима Resend, чтобы кнопка «Отправить себе» работала для любого пользователя.
+  - Каскадные удаления лекций скопированы по `user_id`.
+  - Улучшен контраст disabled-кнопки заморозки на карточке серии.
+  - `/api/config` вернул `digest_email_fallback` для показа в UI.
+
 ## Реализовано (2026-02-04) — Итерация 4
 - **Streak Counter 🔥**: новая коллекция `review_days` (upsert `{day: YYYY-MM-DD}` при каждом ответе в повторении). `/api/stats` возвращает `streak` (последовательные дни, начиная от сегодня или вчера — grace-period 1 день) и `reviewed_today`. На дашборде большая карточка с анимированным пламенем `Flame` из lucide (свечение + мерцание через `flame-flicker` keyframes), бейджиком со счётчиком дней и мотивационным подзаголовком ("Сегодня уже занимались — серия не сгорит" / "Ещё не занимались сегодня — не потеряйте серию"). Кликается — ведёт на страницу повторения.
 - **Auto Glossary**: `_build_glossary()` вынесен в общий хелпер и автоматически вызывается сразу после `POST /api/lectures/{id}/summary`. Ошибка глоссария не роняет генерацию конспекта, только логируется. Toast на клиенте сообщает `Конспект готов · глоссарий (N)`.

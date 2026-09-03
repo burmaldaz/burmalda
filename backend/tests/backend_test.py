@@ -28,10 +28,25 @@ TRANSCRIPT = (
 ) * 2
 
 
+def _admin_creds():
+    import re
+    from pathlib import Path
+    c = Path("/app/memory/test_credentials.md").read_text(encoding="utf-8")
+    e = re.search(r'(?im)^\s*(?:[-*]\s*)?(?:\*\*)?email(?:\*\*)?\s*:\s*`?([^`\s]+)', c)
+    p = re.search(r'(?im)^\s*(?:[-*]\s*)?(?:\*\*)?password(?:\*\*)?\s*:\s*`?([^`\s]+)', c)
+    assert e and p, "missing admin credentials"
+    return e.group(1), p.group(1)
+
+
 @pytest.fixture(scope="session")
 def client():
+    """Authenticated session (iteration 5: all data endpoints require auth)."""
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    email, password = _admin_creds()
+    r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+    if r.status_code != 200:
+        pytest.fail(f"admin login failed {r.status_code}: {r.text[:300]}")
     return s
 
 
@@ -202,10 +217,10 @@ class TestTranscribeAudio:
         assert r.status_code == 405, r.text
 
     def test_post_without_file(self, client):
-        r = requests.post(f"{API}/transcribe-audio")
+        r = client.post(f"{API}/transcribe-audio")
         assert r.status_code == 422, r.text
 
-    def test_post_real_audio(self):
+    def test_post_real_audio(self, client):
         if not _has_ffmpeg():
             pytest.skip("ffmpeg unavailable; cannot generate audio")
         path = "/tmp/test_tone.mp3"
@@ -214,9 +229,10 @@ class TestTranscribeAudio:
              "sine=frequency=440:duration=2", "-c:a", "libmp3lame", path],
             check=True, capture_output=True)
         with open(path, "rb") as f:
-            r = requests.post(f"{API}/transcribe-audio",
-                              files={"file": ("test_tone.mp3", f, "audio/mpeg")},
-                              timeout=180)
+            r = client.post(f"{API}/transcribe-audio",
+                            files={"file": ("test_tone.mp3", f, "audio/mpeg")},
+                            headers={"Content-Type": None},
+                            timeout=180)
         assert r.status_code == 200, r.text
         d = r.json()
         assert "text" in d and isinstance(d["text"], str)
@@ -237,11 +253,11 @@ class TestNormalization:
         # short answer normalizes to "" and is always graded incorrect.
         assert _norm("Хлорофилл") == "хлорофилл", repr(_norm("Хлорофилл"))
 
-    def test_cyrillic_short_answer_marked_correct(self):
+    def test_cyrillic_short_answer_marked_correct(self, client):
         """End-to-end proof against live data: a due short-answer review item
         with a Cyrillic expected answer, answered exactly, must be correct."""
-        requests.post(f"{API}/review/seed-now")
-        due = requests.get(f"{API}/review/due").json()
+        client.post(f"{API}/review/seed-now")
+        due = client.get(f"{API}/review/due").json()
         cyr_items = [i for i in due if i["question"]["type"] == "short"
                      and any("\u0400" <= c <= "\u04FF"
                              for c in i["question"]["answer"])]
@@ -249,8 +265,8 @@ class TestNormalization:
             pytest.skip("no due short item with Cyrillic answer available")
         item = cyr_items[0]
         exact = item["question"]["answer"]
-        r = requests.post(f"{API}/review/{item['id']}/answer",
-                          json={"response": exact})
+        r = client.post(f"{API}/review/{item['id']}/answer",
+                        json={"response": exact})
         assert r.status_code == 200, r.text
         assert r.json()["is_correct"] is True, (
             f"exact Cyrillic answer {exact!r} graded WRONG")

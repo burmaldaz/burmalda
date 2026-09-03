@@ -1,8 +1,9 @@
-import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { Library, Mic, LayoutDashboard, Leaf, Repeat, Mail, Sun, Moon } from "lucide-react";
+import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Library, Mic, LayoutDashboard, Leaf, Repeat, Mail, Sun, Moon, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import useTheme from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/AuthContext";
 
 const nav = [
   { to: "/", label: "Обзор", icon: LayoutDashboard, testId: "nav-overview" },
@@ -14,9 +15,11 @@ const nav = [
 
 export default function AppShell() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [cfg, setCfg] = useState(null);
   const [reviewStats, setReviewStats] = useState({ due: 0, total: 0 });
   const { theme, toggle } = useTheme();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     api.config().then(setCfg).catch(() => {});
@@ -25,6 +28,11 @@ export default function AppShell() {
     const iv = setInterval(load, 30000);
     return () => clearInterval(iv);
   }, [pathname]);
+
+  const onLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <div className="paper-grain min-h-screen relative">
@@ -94,12 +102,23 @@ export default function AppShell() {
           </nav>
 
           <div className="p-4 border-t border-[color:var(--border)]">
-            <div className="font-mono-label">Движок</div>
-            <div className="text-sm mt-1 text-[color:var(--ink)]">
-              {cfg?.llm_mode === "deepseek" ? "DeepSeek" : "Gemini Flash"}
-              {cfg?.email_enabled && (
-                <span className="text-[color:var(--muted)]"> · Resend</span>
-              )}
+            <div className="font-mono-label">Аккаунт</div>
+            <div className="text-sm mt-1 text-[color:var(--ink)] truncate" data-testid="user-email">
+              {user?.email || "—"}
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <div className="text-xs text-[color:var(--muted)]">
+                {cfg?.llm_mode === "deepseek" ? "DeepSeek" : "Gemini Flash"}
+                {cfg?.email_enabled && " · Resend"}
+              </div>
+              <button
+                onClick={onLogout}
+                data-testid="logout-btn"
+                title="Выйти"
+                className="text-[color:var(--muted)] hover:text-[color:var(--terracotta)] p-1 border border-transparent hover:border-[color:var(--border)]"
+              >
+                <LogOut className="w-4 h-4" strokeWidth={1.5} />
+              </button>
             </div>
             {cfg?.is_mocked && (
               <div
