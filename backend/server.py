@@ -37,9 +37,6 @@ import resend
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.llm.openai import OpenAISpeechToText
-
 # ---- Storage folder for raw transcripts ----
 TRANSCRIPTS_DIR = ROOT_DIR / "lecture_transcripts"
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)
