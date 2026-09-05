@@ -1313,7 +1313,7 @@ _origins = [o for o in [FRONTEND_URL, "http://localhost:3000"] if o]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=_origins or ["*"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
